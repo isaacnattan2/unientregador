@@ -5,18 +5,18 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
-import { acceptDelivery, ApiError, cancelDelivery, confirmDelivery, getDeliveries, getDriverName, getDriverPushAlias, loginDriver } from './src/api';
+import { acceptDelivery, ApiError, cancelDelivery, confirmDelivery, formatOrderCode, getDeliveries, getDriverName, getDriverPushAlias, loginDriver } from './src/api';
 import type { Delivery, DriverSession } from './src/api';
 import { DeliveryNavigation } from './src/DeliveryNavigation';
 import { DriverProfileScreen } from './src/DriverProfileScreen';
+import { AppThemeProvider, useAppTheme } from './src/AppTheme';
+import type { AppPalette } from './src/AppTheme';
 import type { StyleProp, ViewStyle } from 'react-native';
 import type { NotificationClickEvent } from 'react-native-onesignal';
 
 const sessionKey = 'uniweb.driver.session';
 type DeliverySection = 'available' | 'accepted';
 let pushInitialized = false;
-const blue = '#1762d1';
-const navy = '#152844';
 const muted = '#4d617a';
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateTime = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -25,6 +25,7 @@ const messageOf = (error: unknown, fallback: string) => error instanceof Error ?
 function Button({ label, onPress, disabled = false, secondary = false, style }: {
   label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; style?: StyleProp<ViewStyle>;
 }) {
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
       style={({ pressed }) => [styles.button, secondary && styles.secondary, style, pressed && styles.pressed, disabled && styles.disabled]}>
@@ -34,6 +35,7 @@ function Button({ label, onPress, disabled = false, secondary = false, style }: 
 }
 
 function Login({ onLogin, notice }: { onLogin: (session: DriverSession) => Promise<void>; notice: string }) {
+  const styles = useStyles();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(notice);
@@ -85,7 +87,7 @@ const deliveryStatusLabels = {
   in_progress: 'Entrega em andamento',
   delivered: 'Entrega realizada',
   cancelled: 'Entrega cancelada pelo entregador',
-  cancelled_by_store: 'Pedido cancelado pela loja',
+  cancelled_by_store: 'Pedido cancelado',
 };
 
 type DeliveryAction = { kind: 'accept' | 'cancel' } | { kind: 'confirm'; code: string };
@@ -95,6 +97,7 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
   actionError: string; onSubmit: (action: DeliveryAction) => void;
   onNavigate: () => void; map?: React.ReactNode;
 }) {
+  const styles = useStyles();
   const [code, setCode] = useState('');
   const status = delivery.status ?? 'available';
   const fee = delivery.deliveryFee === null ? null : Number(delivery.deliveryFee);
@@ -103,7 +106,7 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
     <View style={styles.card}>
       <Text accessibilityRole="header" style={styles.cardTitle}>{delivery.pickup.storeName}</Text>
       <View style={styles.orderSummary}>
-        <Text style={styles.order}>Pedido #{delivery.orderNumber}</Text>
+        <Text style={styles.order}>Pedido #{formatOrderCode(delivery.orderId)}</Text>
         <Text style={[styles.deliveryStatus, styles[status === 'cancelled_by_store' ? 'cancelled' : status]]}>
           {deliveryStatusLabels[status]}
         </Text>
@@ -149,6 +152,8 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
   session: DriverSession; onExpired: () => void; onLogout: () => Promise<void>;
   pushDestination: { section: DeliverySection } | null;
 }) {
+  const styles = useStyles();
+  const { primary } = useAppTheme();
   const { token, name } = session;
   const [driverName, setDriverName] = useState(name);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -236,7 +241,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
       else if (action.kind === 'confirm') await confirmDelivery(token, item.orderId, action.code, controller.signal);
       if (controller.signal.aborted) return;
       if (action.kind === 'accept') {
-        setActionNotice('Entrega do pedido #' + item.orderNumber + ' aceita.');
+        setActionNotice(`Entrega do pedido #${formatOrderCode(item.orderId)} aceita.`);
         setSection('accepted');
         setItems([{ ...item, status: 'in_progress' }]);
         setNextOffset(null);
@@ -247,8 +252,9 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
         const status = action.kind === 'cancel' ? 'cancelled' : 'delivered';
         setItems((previous) => previous.map((delivery) => delivery.orderId === item.orderId
           ? { ...delivery, status } : delivery));
-        setActionNotice(action.kind === 'cancel' ? 'Entrega do pedido #' + item.orderNumber + ' cancelada.' :
-          'Entrega do pedido #' + item.orderNumber + ' realizada.');
+        const orderCode = formatOrderCode(item.orderId);
+        setActionNotice(action.kind === 'cancel' ? `Entrega do pedido #${orderCode} cancelada.` :
+          `Entrega do pedido #${orderCode} realizada.`);
         await load('accepted', 0, 'refresh');
       }
     } catch (err) {
@@ -329,7 +335,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
         }
         refreshing={pending === 'refresh'} onRefresh={() => void load(section, 0, 'refresh')}
         ListEmptyComponent={pending ? (
-          <View style={styles.empty}><ActivityIndicator color={blue} /><Text style={styles.description}>Buscando entregas…</Text></View>
+          <View style={styles.empty}><ActivityIndicator color={primary} /><Text style={styles.description}>Buscando entregas…</Text></View>
         ) : !error ? (
           <View style={styles.empty}><Text style={styles.cardTitle}>
             {section === 'available' ? 'Nenhuma entrega disponível' : 'Você ainda não aceitou entregas'}
@@ -357,6 +363,12 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
 }
 
 export default function App() {
+  return <AppThemeProvider><AppContent /></AppThemeProvider>;
+}
+
+function AppContent() {
+  const styles = useStyles();
+  const { primary } = useAppTheme();
   const [session, setSession] = useState<DriverSession | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [notice, setNotice] = useState('');
@@ -434,7 +446,7 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView style={styles.screen}>
         <StatusBar barStyle="dark-content" />
-        {restoring ? <View style={styles.center}><ActivityIndicator size="large" color={blue} /><Text style={styles.description}>Restaurando sessão…</Text></View> :
+        {restoring ? <View style={styles.center}><ActivityIndicator size="large" color={primary} /><Text style={styles.description}>Restaurando sessão…</Text></View> :
           session ? <Deliveries key={session.token} session={session} onExpired={expire} onLogout={logout} pushDestination={pushDestination} /> :
             <Login onLogin={remember} notice={notice} />}
       </SafeAreaView>
@@ -442,23 +454,28 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+function useStyles() {
+  const theme = useAppTheme();
+  return React.useMemo(() => createStyles(theme), [theme]);
+}
+
+const createStyles = ({ primary, primaryInk, secondary, secondaryInk, onPrimary, onSecondary }: AppPalette) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f2f6fb' },
   fill: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 12 },
   loginLayout: { flexGrow: 1, justifyContent: 'center', padding: 20 },
   loginCard: { width: '100%', maxWidth: 420, alignSelf: 'center', padding: 24, borderRadius: 18, backgroundColor: '#fff' },
-  brand: { fontSize: 16, fontWeight: '700', color: blue, marginBottom: 8 },
-  title: { fontSize: 32, fontWeight: '800', color: navy, marginBottom: 6 },
+  brand: { fontSize: 16, fontWeight: '700', color: primaryInk, marginBottom: 8 },
+  title: { fontSize: 32, fontWeight: '800', color: secondaryInk, marginBottom: 6 },
   description: { fontSize: 15, lineHeight: 22, color: muted, marginBottom: 12 },
-  label: { fontSize: 14, fontWeight: '700', color: navy, marginTop: 12, marginBottom: 5 },
+  label: { fontSize: 14, fontWeight: '700', color: secondaryInk, marginTop: 12, marginBottom: 5 },
   input: { backgroundColor: '#f7faff', borderColor: '#c6d5e6', borderWidth: 1, borderRadius: 9, minHeight: 48,
-    paddingHorizontal: 12, paddingVertical: 9, color: navy, fontSize: 16, marginBottom: 4 },
-  button: { backgroundColor: blue, minHeight: 46, paddingHorizontal: 14, paddingVertical: 9,
+    paddingHorizontal: 12, paddingVertical: 9, color: secondaryInk, fontSize: 16, marginBottom: 4 },
+  button: { backgroundColor: primary, minHeight: 46, paddingHorizontal: 14, paddingVertical: 9,
     justifyContent: 'center', alignItems: 'center', borderRadius: 9, marginTop: 12 },
-  secondary: { backgroundColor: '#eaf2ff' },
-  buttonLabel: { fontSize: 15, fontWeight: '700', color: '#fff', textAlign: 'center' },
-  secondaryLabel: { color: '#144eaa' },
+  secondary: { backgroundColor: secondary },
+  buttonLabel: { fontSize: 15, fontWeight: '700', color: onPrimary, textAlign: 'center' },
+  secondaryLabel: { color: onSecondary },
   pressed: { opacity: 0.8 },
   disabled: { opacity: 0.55 },
   error: { color: '#a0262f', marginTop: 12, fontSize: 14, lineHeight: 20 },
@@ -471,19 +488,19 @@ const styles = StyleSheet.create({
   profileActions: { alignItems: 'flex-end', width: '100%', maxWidth: 780, alignSelf: 'center', paddingHorizontal: 16, paddingTop: 12 },
   deliveryTabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, width: '100%', maxWidth: 780, alignSelf: 'center' },
   deliveryTab: { flex: 1, minHeight: 44, justifyContent: 'center', borderRadius: 8, padding: 8, backgroundColor: '#fff' },
-  selectedTab: { backgroundColor: blue },
-  deliveryTabLabel: { textAlign: 'center', fontSize: 15, fontWeight: '700', color: navy },
-  selectedTabLabel: { color: '#fff' },
+  selectedTab: { backgroundColor: primary },
+  deliveryTabLabel: { textAlign: 'center', fontSize: 15, fontWeight: '700', color: secondaryInk },
+  selectedTabLabel: { color: onPrimary },
   orderSummary: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 },
   deliveryStatus: { fontSize: 13, fontWeight: '700', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
   available: { color: '#24456d', backgroundColor: '#eaf2ff' },
   in_progress: { color: '#744212', backgroundColor: '#fff0cf' },
   delivered: { color: '#166534', backgroundColor: '#dcfce7' },
   cancelled: { color: '#991b1b', backgroundColor: '#fee2e2' },
-  feedTitle: { fontSize: 22, fontWeight: '800', color: navy, marginBottom: 12 },
+  feedTitle: { fontSize: 22, fontWeight: '800', color: secondaryInk, marginBottom: 12 },
   feedList: { width: '100%', maxWidth: 780, alignSelf: 'center', padding: 16, flexGrow: 1 },
   card: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#d7e3ef', padding: 16, borderRadius: 12, marginBottom: 12 },
-  cardTitle: { fontSize: 18, fontWeight: '800', color: navy },
+  cardTitle: { fontSize: 18, fontWeight: '800', color: secondaryInk },
   order: { color: muted, fontSize: 13 },
   body: { fontSize: 15, lineHeight: 21, color: muted },
   caption: { fontSize: 12, color: muted },

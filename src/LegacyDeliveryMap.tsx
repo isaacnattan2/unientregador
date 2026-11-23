@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { Coordinates, DeliveryRoute } from './api';
+import { useAppTheme } from './AppTheme';
 
 const source = { html: `<!doctype html>
 <html lang="pt-BR"><head>
@@ -26,6 +27,11 @@ if (!window.L) {
   var destination = L.circleMarker([0, 0], { color: '#152844', fillOpacity: 1 });
   var centered = false;
   map.on('dragstart', function () { window.ReactNativeWebView.postMessage('pan'); });
+  window.setDeliveryMapColors = function (primary, secondary) {
+    driver.setStyle({ color: primary, fillColor: primary });
+    line.setStyle({ color: primary });
+    destination.setStyle({ color: secondary, fillColor: secondary });
+  };
   window.updateDeliveryMap = function (position, points, following) {
     driver.setLatLng(position);
     if (!centered) { map.setView(position, 16); centered = true; }
@@ -45,8 +51,14 @@ export function LegacyDeliveryMap({ position, route, following, onPan }: {
   position: Coordinates; route?: DeliveryRoute; following: boolean; onPan: () => void;
 }) {
   const webView = useRef<WebView<object>>(null);
+  const { primary, secondary } = useAppTheme();
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!ready) return;
+    webView.current?.injectJavaScript(`window.setDeliveryMapColors(${JSON.stringify(primary)}, ${JSON.stringify(secondary)}); true;`);
+  }, [ready, primary, secondary]);
 
   useEffect(() => {
     if (!ready) return;

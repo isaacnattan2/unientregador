@@ -3,10 +3,12 @@ import { AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from '
 import * as Location from 'expo-location';
 import { Camera, GeoJSONSource, Layer, Map } from '@maplibre/maplibre-react-native';
 import type { CameraRef } from '@maplibre/maplibre-react-native';
-import { ApiError, clearDeliveryPosition, getDeliveryRoute, publishDeliveryPosition } from './api';
+import { ApiError, clearDeliveryPosition, formatOrderCode, getDeliveryRoute, publishDeliveryPosition } from './api';
 import type { Coordinates, Delivery, DeliveryRoute } from './api';
 import { LegacyDeliveryMap } from './LegacyDeliveryMap';
 import { distanceToRoute } from './routeDistance';
+import { useAppTheme } from './AppTheme';
+import type { AppPalette } from './AppTheme';
 
 const mapStyle = process.env.EXPO_PUBLIC_OSM_MAP_STYLE_URL?.trim() || 'https://tiles.openfreemap.org/styles/liberty';
 const useLegacyMap = Platform.OS === 'android' && Number(Platform.Version) <= 25;
@@ -14,6 +16,8 @@ const useLegacyMap = Platform.OS === 'android' && Number(Platform.Version) <= 25
 export function DeliveryNavigation({ delivery, token, onEnded, onStop }: {
   delivery: Delivery; token: string; onEnded: () => void; onStop: () => void;
 }) {
+  const theme = useAppTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const [position, setPosition] = useState<Coordinates>();
   const [route, setRoute] = useState<DeliveryRoute>();
   const [message, setMessage] = useState('Aguardando localização…');
@@ -151,7 +155,7 @@ export function DeliveryNavigation({ delivery, token, onEnded, onStop }: {
 
   return (
     <View style={styles.panel}>
-      <Text accessibilityRole="header" style={styles.heading}>Rota do pedido #{delivery.orderNumber}</Text>
+      <Text accessibilityRole="header" style={styles.heading}>Rota do pedido #{formatOrderCode(delivery.orderId)}</Text>
       <Text style={styles.body}>{destination}</Text>
       <Text accessibilityLiveRegion="polite" style={styles.body}>{message}</Text>
       {position && (useLegacyMap ? <LegacyDeliveryMap position={position} route={route}
@@ -161,16 +165,16 @@ export function DeliveryNavigation({ delivery, token, onEnded, onStop }: {
           <Camera ref={camera} initialViewState={{ center: [position.longitude, position.latitude], zoom: 16 }} />
           {route && (
             <GeoJSONSource data={{ type: 'LineString', coordinates: route.points.map((point) => [point.longitude, point.latitude]) }}>
-              <Layer type="line" paint={{ 'line-color': '#1762d1', 'line-width': 5 }} />
+              <Layer type="line" paint={{ 'line-color': theme.primary, 'line-width': 5 }} />
             </GeoJSONSource>
           )}
           {endpoint && (
             <GeoJSONSource data={{ type: 'Point', coordinates: [endpoint.longitude, endpoint.latitude] }}>
-              <Layer type="circle" paint={{ 'circle-radius': 8, 'circle-color': '#152844', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 }} />
+              <Layer type="circle" paint={{ 'circle-radius': 8, 'circle-color': theme.secondary, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 }} />
             </GeoJSONSource>
           )}
           <GeoJSONSource data={{ type: 'Point', coordinates: [position.longitude, position.latitude] }}>
-            <Layer type="circle" paint={{ 'circle-radius': 8, 'circle-color': '#1762d1', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 }} />
+            <Layer type="circle" paint={{ 'circle-radius': 8, 'circle-color': theme.primary, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 }} />
           </GeoJSONSource>
         </Map>
       ))}
@@ -198,12 +202,12 @@ export function DeliveryNavigation({ delivery, token, onEnded, onStop }: {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = ({ secondary, secondaryInk, onSecondary }: AppPalette) => StyleSheet.create({
   panel: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#d7e3ef', borderRadius: 12, padding: 16, marginTop: 12, gap: 10 },
-  heading: { fontSize: 18, fontWeight: '800', color: '#152844' },
+  heading: { fontSize: 18, fontWeight: '800', color: secondaryInk },
   body: { fontSize: 14, color: '#4d617a' },
   map: { width: '100%', height: 300, borderRadius: 8 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  button: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center', borderRadius: 8, backgroundColor: '#eaf2ff' },
-  buttonText: { fontWeight: '700', color: '#144eaa' },
+  button: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center', borderRadius: 8, backgroundColor: secondary },
+  buttonText: { fontWeight: '700', color: onSecondary },
 });

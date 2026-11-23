@@ -1,0 +1,10 @@
+// Keep Expo's prefab paths short enough for Ninja on Windows.
+subprojects { module ->
+    if (module.name == 'expo-modules-core' && System.getProperty('os.name').startsWith('Windows')) {
+        module.pluginManager.withPlugin('com.android.library') {
+            module.extensions.getByName('androidComponents').finalizeDsl { android ->
+                android.externalNativeBuild.cmake.buildStagingDirectory(rootProject.file('../.expo/cxx/expo'))
+            }
+        }
+    }
+}

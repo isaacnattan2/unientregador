@@ -1,5 +1,20 @@
 ﻿const apiUrl = (process.env.EXPO_PUBLIC_API_URL || 'https://uniweb-p7mz.onrender.com/api').replace(/\/+$/, '');
 
+export function formatOrderCode(orderId: string) {
+  return orderId.slice(0, 8).toUpperCase();
+}
+
+export type DriverAppTheme = { primary: string; secondary: string };
+
+export async function getAppTheme(signal: AbortSignal): Promise<DriverAppTheme> {
+  const result = await request('/app/theme', { signal }) as Partial<DriverAppTheme> | null;
+  const hex = /^#[0-9a-f]{6}$/i;
+  if (!result?.primary || !result.secondary || !hex.test(result.primary) || !hex.test(result.secondary)) {
+    throw new Error('Tema do app inválido.');
+  }
+  return { primary: result.primary, secondary: result.secondary };
+}
+
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
     super(message);

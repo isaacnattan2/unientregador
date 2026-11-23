@@ -4,6 +4,8 @@ import type { TextInputProps } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, getDriverProfile, saveDriverProfile } from './api';
 import type { DriverProfile } from './api';
+import { useAppTheme } from './AppTheme';
+import type { AppPalette } from './AppTheme';
 
 const vehicles = [
   ['bicycle', 'Bicicleta'], ['motorcycle', 'Moto'], ['car', 'Carro'],
@@ -13,6 +15,8 @@ const vehicles = [
 export function DriverProfileScreen({ token, onClose, onSaved, onExpired }: {
   token: string; onClose: () => void; onSaved: (name: string) => void; onExpired: () => void;
 }) {
+  const theme = useAppTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const [profile, setProfile] = useState<DriverProfile>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -73,7 +77,7 @@ export function DriverProfileScreen({ token, onClose, onSaved, onExpired }: {
                 <Text style={styles.label}>Voltar</Text>
               </Pressable>
             </View>
-            {loading && <ActivityIndicator color="#1762d1" />}
+            {loading && <ActivityIndicator color={theme.primary} />}
             {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
             {!loading && !profile && <Pressable accessibilityRole="button" style={styles.option}
               onPress={() => retry((value) => value + 1)}><Text style={styles.label}>Tentar novamente</Text></Pressable>}
@@ -113,20 +117,20 @@ export function DriverProfileScreen({ token, onClose, onSaved, onExpired }: {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = ({ primary, secondaryInk, onPrimary }: AppPalette) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f4f7fb' },
   content: { width: '100%', maxWidth: 600, alignSelf: 'center', padding: 16, gap: 14 },
   heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
-  title: { fontSize: 24, fontWeight: '800', color: '#152844' },
-  subtitle: { fontSize: 18, fontWeight: '800', color: '#152844' },
+  title: { fontSize: 24, fontWeight: '800', color: secondaryInk },
+  subtitle: { fontSize: 18, fontWeight: '800', color: secondaryInk },
   group: { backgroundColor: '#fff', padding: 16, borderWidth: 1, borderColor: '#d7e3ef', borderRadius: 12, gap: 12 },
   field: { gap: 5 },
-  label: { color: '#152844', fontWeight: '700' },
-  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, minHeight: 44, paddingHorizontal: 12, color: '#152844' },
+  label: { color: secondaryInk, fontWeight: '700' },
+  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, minHeight: 44, paddingHorizontal: 12, color: secondaryInk },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   option: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center', alignItems: 'center',
     backgroundColor: '#eaf2ff', borderRadius: 8 },
-  selected: { backgroundColor: '#1762d1' },
-  white: { color: '#fff', fontWeight: '700' },
+  selected: { backgroundColor: primary },
+  white: { color: onPrimary, fontWeight: '700' },
   error: { color: '#a0262f' },
 });
