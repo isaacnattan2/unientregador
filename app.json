@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "UniEntregador",
+    "slug": "unientregador",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": { "bundleIdentifier": "br.com.uniweb.unientregador", "supportsTablet": true },
+    "android": { "package": "br.com.uniweb.unientregador" },
+    "plugins": ["expo-secure-store"]
+  }
+}
