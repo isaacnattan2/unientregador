@@ -1,9 +1,22 @@
-// Keep Expo's prefab paths short enough for Ninja on Windows.
+// Keep generated native paths short enough for Ninja on Windows.
 subprojects { module ->
-    if (module.name == 'expo-modules-core' && System.getProperty('os.name').startsWith('Windows')) {
+    if (!System.getProperty('os.name').startsWith('Windows')) return
+
+    if (module.name == 'expo-modules-core') {
         module.pluginManager.withPlugin('com.android.library') {
             module.extensions.getByName('androidComponents').finalizeDsl { android ->
                 android.externalNativeBuild.cmake.buildStagingDirectory(rootProject.file('../.expo/cxx/expo'))
+            }
+        }
+    }
+
+    if (module.name == 'app') {
+        module.pluginManager.withPlugin('com.android.application') {
+            module.extensions.getByName('androidComponents').finalizeDsl { android ->
+                def projectId = Integer.toHexString(rootProject.projectDir.absolutePath.hashCode())
+                def staging = new File(System.getProperty('java.io.tmpdir'), "uni-cmake-${projectId}")
+                android.externalNativeBuild.cmake.buildStagingDirectory(staging)
+                android.defaultConfig.externalNativeBuild.cmake.arguments('-DCMAKE_OBJECT_PATH_MAX=250')
             }
         }
     }

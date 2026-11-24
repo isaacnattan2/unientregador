@@ -7,6 +7,7 @@
     "userInterfaceStyle": "light",
     "ios": { "bundleIdentifier": "br.com.uniweb.unientregador", "supportsTablet": true },
     "android": { "package": "br.com.uniweb.unientregador" },
-    "plugins": ["expo-secure-store"]
+    "plugins": ["expo-secure-store"],
+    "extra": { "oneSignalAppId": "e4a399cf-14f7-44e4-a49b-1130e99ce1bb" }
   }
 }

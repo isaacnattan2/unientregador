@@ -1,22 +1,24 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar,
+  ActivityIndicator, Alert, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
-import { acceptDelivery, ApiError, cancelDelivery, confirmDelivery, formatOrderCode, getDeliveries, getDriverName, getDriverPushAlias, loginDriver } from './src/api';
+import { acceptDelivery, ApiError, cancelDelivery, confirmDelivery, formatOrderCode, getCurrentDriverOffer, getDeliveries, getDriverName, loginDriver, pickupDelivery, respondToDeliveryOffer, setDriverPresence } from './src/api';
 import type { Delivery, DriverSession } from './src/api';
 import { DeliveryNavigation } from './src/DeliveryNavigation';
 import { DriverProfileScreen } from './src/DriverProfileScreen';
+import { DriverDispatchControls } from './src/DriverDispatchControls';
+import { IncomingDeliveryOffer } from './src/IncomingDeliveryOffer';
 import { AppThemeProvider, useAppTheme } from './src/AppTheme';
 import type { AppPalette } from './src/AppTheme';
 import type { StyleProp, ViewStyle } from 'react-native';
-import type { NotificationClickEvent } from 'react-native-onesignal';
+import { useDriverPush } from './src/DriverPush';
+import type { PushDestination } from './src/DriverPush';
 
-const sessionKey = 'uniweb.driver.session';
+import { sessionKey, sessionStorageOptions, stopDriverBackgroundLocation } from './src/DriverBackgroundLocation';
 type DeliverySection = 'available' | 'accepted';
-let pushInitialized = false;
 const muted = '#4d617a';
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateTime = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -90,7 +92,7 @@ const deliveryStatusLabels = {
   cancelled_by_store: 'Pedido cancelado',
 };
 
-type DeliveryAction = { kind: 'accept' | 'cancel' } | { kind: 'confirm'; code: string };
+type DeliveryAction = { kind: 'accept' | 'decline' | 'pickup' } | { kind: 'cancel'; reason?: string } | { kind: 'confirm'; code: string };
 
 function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, onNavigate, map }: {
   delivery: Delivery; submitting: DeliveryAction['kind'] | undefined; disabled: boolean;
@@ -99,16 +101,30 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
 }) {
   const styles = useStyles();
   const [code, setCode] = useState('');
+  const [reason, setReason] = useState('');
+  const [reporting, setReporting] = useState(false);
+  const [now, setNow] = useState(Date.now);
   const status = delivery.status ?? 'available';
+  const active = delivery.status === 'in_progress';
+  const incident = delivery.dispatchState === 'incident';
+  const assigned = delivery.dispatchState === 'assigned';
+  const scheduledTime = delivery.scheduledAt ? new Date(delivery.scheduledAt) : null;
+  const remaining = delivery.offerExpiresAt ? Math.max(0, Math.ceil((Date.parse(delivery.offerExpiresAt) - now) / 1000)) : null;
   const fee = delivery.deliveryFee === null ? null : Number(delivery.deliveryFee);
   const timestamp = delivery.createdAt ? new Date(delivery.createdAt) : null;
+  useEffect(() => {
+    if (!delivery.offerExpiresAt && !(assigned && scheduledTime)) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [delivery.offerExpiresAt, assigned, delivery.scheduledAt]);
   return (
     <View style={styles.card}>
       <Text accessibilityRole="header" style={styles.cardTitle}>{delivery.pickup.storeName}</Text>
       <View style={styles.orderSummary}>
         <Text style={styles.order}>Pedido #{formatOrderCode(delivery.orderId)}</Text>
         <Text style={[styles.deliveryStatus, styles[status === 'cancelled_by_store' ? 'cancelled' : status]]}>
-          {deliveryStatusLabels[status]}
+          {incident && active ? 'Ocorrência em análise' : assigned && active ? 'Aguardando retirada' :
+            delivery.offerId && !delivery.status ? 'Oferta de entrega' : deliveryStatusLabels[status]}
         </Text>
       </View>
       <Text style={styles.label}>Retirada</Text>
@@ -117,12 +133,29 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
       <Text style={styles.body}>{delivery.destinationAddress || delivery.destinationArea || 'Endereço não informado'}</Text>
       <View style={styles.cardFooter}>
         <View>
-          <Text style={styles.caption}>Taxa de entrega</Text>
-          <Text style={styles.fee}>{fee !== null && Number.isFinite(fee) ? currency.format(fee) : 'A definir'}</Text>
+          <Text style={styles.caption}>{delivery.managed ? 'Valor da corrida' : 'Taxa de entrega'}</Text>
+          <Text style={styles.fee}>{fee !== null && Number.isFinite(fee) ? currency.format(fee) :
+            delivery.rateCents != null ? 'Distância indisponível' : 'A definir'}</Text>
+          {delivery.distanceMeters != null && delivery.rateCents != null && (
+            <Text style={styles.caption}>
+              {(delivery.distanceMeters / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km · {currency.format(delivery.rateCents / 100)}/km
+            </Text>
+          )}
         </View>
         {timestamp && !Number.isNaN(timestamp.getTime()) && <Text style={styles.caption}>{dateTime.format(timestamp)}</Text>}
       </View>
-      {delivery.status === 'in_progress' && (
+      {scheduledTime && <Text style={styles.label}>Retirada a partir de {dateTime.format(scheduledTime)}</Text>}
+      {active && !incident && assigned && (
+        <>
+          <Button label={submitting === 'pickup' ? 'Registrando…' : 'Confirmar retirada'} disabled={disabled || (!!scheduledTime && now < scheduledTime.getTime())}
+            onPress={() => onSubmit({ kind: 'pickup' })} />
+          <Button label="Desistir da entrega" secondary disabled={disabled}
+            onPress={() => Alert.alert('Desistir da entrega?', 'A plataforma buscará outro entregador.', [
+              { text: 'Voltar', style: 'cancel' }, { text: 'Desistir', style: 'destructive', onPress: () => onSubmit({ kind: 'cancel' }) },
+            ])} />
+        </>
+      )}
+      {active && !incident && !assigned && (
         <>
           <Button label="Ver mapa da entrega" secondary disabled={disabled} onPress={onNavigate} />
           {map}
@@ -132,17 +165,29 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
             onChangeText={(value) => setCode(value.replace(/[^0-9]/g, ''))} />
           <Button label={submitting === 'confirm' ? 'Confirmando…' : 'Confirmar entrega'}
             disabled={disabled || code.length !== 4} onPress={() => onSubmit({ kind: 'confirm', code })} />
-          <Button label={submitting === 'cancel' ? 'Cancelando…' : 'Cancelar entrega'} secondary disabled={disabled}
+          {delivery.managed ? <>
+            <Button label={reporting ? 'Voltar à entrega' : 'Relatar problema na entrega'} secondary disabled={disabled}
+              onPress={() => setReporting(!reporting)} />
+            {reporting && <>
+              <TextInput style={styles.input} accessibilityLabel="Motivo da ocorrência" placeholder="Descreva o problema e onde está o pacote"
+                maxLength={500} value={reason} onChangeText={setReason} editable={!disabled} />
+              <Button label={submitting === 'cancel' ? 'Enviando…' : 'Enviar ocorrência'} disabled={disabled || !reason.trim()}
+                onPress={() => onSubmit({ kind: 'cancel', reason })} />
+            </>}
+          </> : <Button label={submitting === 'cancel' ? 'Cancelando…' : 'Cancelar entrega'} secondary disabled={disabled}
             onPress={() => Alert.alert('Cancelar entrega?', 'O pedido ficará marcado como entrega cancelada pelo entregador.', [
               { text: 'Manter entrega', style: 'cancel' },
               { text: 'Cancelar entrega', style: 'destructive', onPress: () => onSubmit({ kind: 'cancel' }) },
-            ])} />
+            ])} />}
         </>
       )}
-      {!delivery.status && (
-        <Button label={submitting === 'accept' ? 'Aceitando…' : 'Aceitar entrega'} disabled={disabled}
+      {!delivery.status && <>
+        {remaining !== null && <Text style={styles.caption}>{remaining ? `Responda em até ${remaining} s` : 'Oferta expirada'}</Text>}
+        <Button label={submitting === 'accept' ? 'Aceitando…' : 'Aceitar entrega'} disabled={disabled || remaining === 0}
           onPress={() => onSubmit({ kind: 'accept' })} />
-      )}
+        {delivery.offerId && <Button label="Recusar oferta" secondary disabled={disabled || remaining === 0}
+          onPress={() => onSubmit({ kind: 'decline' })} />}
+      </>}
       {!!actionError && <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text>}
     </View>
   );
@@ -150,13 +195,14 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
 
 function Deliveries({ session, onExpired, onLogout, pushDestination }: {
   session: DriverSession; onExpired: () => void; onLogout: () => Promise<void>;
-  pushDestination: { section: DeliverySection } | null;
+  pushDestination: PushDestination | null;
 }) {
   const styles = useStyles();
   const { primary } = useAppTheme();
   const { token, name } = session;
   const [driverName, setDriverName] = useState(name);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [agendaOpen, setAgendaOpen] = useState(false);
   const [items, setItems] = useState<Delivery[]>([]);
   const [section, setSection] = useState<DeliverySection>(pushDestination?.section ?? 'available');
   const [nextOffset, setNextOffset] = useState<number | null>(null);
@@ -167,9 +213,51 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
   const [actionNotice, setActionNotice] = useState('');
   const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
   const [mapOrderId, setMapOrderId] = useState<string | null>(null);
+  const [offerMode, setOfferMode] = useState<'push' | 'polling'>('push');
+  const [incoming, setIncoming] = useState<{ offer: Delivery; deadline: number } | null>(null);
+  const dismissedOffer = useRef<string | undefined>(undefined);
+  const offerRequest = useRef<AbortController | null>(null);
   const activeRequest = useRef<AbortController | null>(null);
   const actionRequest = useRef<AbortController | null>(null);
   const closeNavigation = useCallback(() => setMapOrderId(null), []);
+
+  const refreshOffer = useCallback(async (force = false, showNative?: () => void) => {
+    if (actionRequest.current) {
+      showNative?.();
+      return;
+    }
+    if (offerRequest.current && !force) return;
+    offerRequest.current?.abort();
+    const controller = new AbortController();
+    offerRequest.current = controller;
+    const started = Date.now();
+    try {
+      const { mode, offer, serverNow } = await getCurrentDriverOffer(token, controller.signal);
+      if (controller.signal.aborted) return;
+      setOfferMode(mode === 'polling' ? 'polling' : 'push');
+      if (!offer?.offerId || !offer.offerExpiresAt || offer.offerId === dismissedOffer.current) {
+        setIncoming((current) => current && current.deadline > Date.now() ? null : current);
+        return;
+      }
+      const received = Date.now();
+      const deadline = received + Date.parse(offer.offerExpiresAt) - Date.parse(serverNow) - (received - started) / 2;
+      if (Number.isFinite(deadline) && deadline > received) setIncoming((current) => (
+        current && current.offer.offerId === offer.offerId ? { offer, deadline: Math.min(current.deadline, deadline) } : { offer, deadline }
+      ));
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        showNative?.();
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) onExpired();
+      }
+    } finally {
+      if (offerRequest.current === controller) offerRequest.current = null;
+    }
+  }, [token, onExpired]);
+
+  function closeOffer(offer: Delivery) {
+    dismissedOffer.current = offer.offerId;
+    setIncoming(null);
+  }
 
   useEffect(() => {
     if (name) return;
@@ -210,16 +298,44 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
     return () => {
       activeRequest.current?.abort();
       actionRequest.current?.abort();
+      offerRequest.current?.abort();
     };
   }, [load]);
 
   useEffect(() => {
-    const target = pushDestination?.section ?? 'available';
+    void load('available', 0, 'initial');
+  }, [load]);
+
+  useEffect(() => {
+    if (!pushDestination) return;
+    if (pushDestination?.offerId) {
+      void refreshOffer(true, pushDestination.showNative);
+      return;
+    }
+    const target = pushDestination.section;
     setSection(target);
     setItems([]);
     setNextOffset(null);
     void load(target, 0, 'initial');
-  }, [load, pushDestination]);
+  }, [load, pushDestination, refreshOffer]);
+
+  useEffect(() => { void refreshOffer(); }, [refreshOffer]);
+
+  useEffect(() => {
+    function refresh() {
+      if (AppState.currentState === 'active' && !activeRequest.current && !actionRequest.current) void load(section, 0, 'refresh');
+    }
+    const interval = offerMode === 'polling' ? setInterval(() => {
+      if (AppState.currentState === 'active') void refreshOffer();
+    }, 6000) : undefined;
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void refreshOffer(true);
+        refresh();
+      }
+    });
+    return () => { if (interval !== undefined) clearInterval(interval); listener.remove(); };
+  }, [load, offerMode, refreshOffer, section]);
 
   async function changeSection(target: typeof section) {
     setSection(target);
@@ -232,20 +348,35 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
     if (actionRequest.current || signingOut) return;
     const controller = new AbortController();
     actionRequest.current = controller;
+    offerRequest.current?.abort();
     setSubmission({ id: item.orderId, kind: action.kind });
     setActionNotice('');
     setActionError(null);
     try {
-      if (action.kind === 'accept') await acceptDelivery(token, item.orderId, controller.signal);
-      else if (action.kind === 'cancel') await cancelDelivery(token, item.orderId, controller.signal);
+      if ((action.kind === 'accept' || action.kind === 'decline') && item.offerId) {
+        await respondToDeliveryOffer(token, item.orderId, item.offerId, action.kind === 'accept', controller.signal);
+      } else if (action.kind === 'accept') await acceptDelivery(token, item.orderId, controller.signal);
+      else if (action.kind === 'cancel') await cancelDelivery(token, item.orderId, controller.signal, action.reason);
+      else if (action.kind === 'pickup') await pickupDelivery(token, item.orderId, controller.signal);
       else if (action.kind === 'confirm') await confirmDelivery(token, item.orderId, action.code, controller.signal);
       if (controller.signal.aborted) return;
+      if (item.offerId && (action.kind === 'accept' || action.kind === 'decline')) closeOffer(item);
       if (action.kind === 'accept') {
         setActionNotice(`Entrega do pedido #${formatOrderCode(item.orderId)} aceita.`);
         setSection('accepted');
-        setItems([{ ...item, status: 'in_progress' }]);
+        setItems([{ ...item, status: 'in_progress', dispatchState: item.managed ? 'assigned' : item.dispatchState }]);
         setNextOffset(null);
-        setMapOrderId(item.orderId);
+        if (!item.managed) setMapOrderId(item.orderId);
+        await load('accepted', 0, 'refresh');
+      } else if (action.kind === 'decline') {
+        setItems((current) => current.filter((entry) => entry.orderId !== item.orderId));
+        await load(section, 0, 'refresh');
+      } else if (action.kind === 'pickup') {
+        setActionNotice('Retirada confirmada.');
+        await load('accepted', 0, 'refresh');
+      } else if (action.kind === 'cancel' && item.managed) {
+        setMapOrderId(null);
+        setActionNotice(action.reason ? 'Ocorrência enviada ao suporte.' : 'A plataforma vai procurar outro entregador.');
         await load('accepted', 0, 'refresh');
       } else {
         setMapOrderId((previous) => previous === item.orderId ? null : previous);
@@ -276,12 +407,23 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
   async function signOut() {
     setSigningOut(true);
     try {
+      await setDriverPresence(token, 'checkout').catch(() => undefined);
       await onLogout();
     } catch {
       setError('Não foi possível encerrar a sessão. Tente novamente.');
       setSigningOut(false);
     }
   }
+
+  const dismissIncoming = incoming ? () => {
+    if (!actionRequest.current && !signingOut) closeOffer(incoming.offer);
+  } : undefined;
+  const offerPopup = incoming && <IncomingDeliveryOffer key={incoming.offer.offerId} offer={incoming.offer} deadline={incoming.deadline}
+    embedded={agendaOpen || profileOpen}
+    busy={submission !== null || signingOut} error={actionError?.id === incoming.offer.orderId ? actionError.message : ''}
+    onAccept={() => void submitDelivery(incoming.offer, { kind: 'accept' })}
+    onDecline={() => void submitDelivery(incoming.offer, { kind: 'decline' })}
+    onClose={() => closeOffer(incoming.offer)} />;
 
   return (
     <View style={styles.fill}>
@@ -297,6 +439,8 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
         <Button label="Meu perfil" secondary style={styles.feedAction} disabled={signingOut || submission !== null}
           onPress={() => setProfileOpen(true)} />
       </View>
+      <DriverDispatchControls token={token} onExpired={onExpired} agenda={agendaOpen} setAgenda={setAgendaOpen}
+        offerOverlay={agendaOpen ? offerPopup : undefined} onDismissOffer={agendaOpen ? dismissIncoming : undefined} />
       <View accessibilityRole="tablist" style={styles.deliveryTabs}>
         {(['available', 'accepted'] as const).map((target) => (
           <Pressable key={target} accessibilityRole="tab" accessibilityState={{ selected: section === target, disabled: submission !== null }}
@@ -333,7 +477,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
               <Text accessibilityRole="alert" style={styles.error}>{actionError.message}</Text>}
           </View>
         }
-        refreshing={pending === 'refresh'} onRefresh={() => void load(section, 0, 'refresh')}
+        refreshing={pending === 'refresh'} onRefresh={() => { void refreshOffer(true); void load(section, 0, 'refresh'); }}
         ListEmptyComponent={pending ? (
           <View style={styles.empty}><ActivityIndicator color={primary} /><Text style={styles.description}>Buscando entregas…</Text></View>
         ) : !error ? (
@@ -352,12 +496,15 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
           )}
         </>} />
       {profileOpen && <DriverProfileScreen token={token} onExpired={onExpired}
+        offerOverlay={offerPopup} onDismissOffer={dismissIncoming}
         onClose={() => setProfileOpen(false)}
+        onRateSaved={() => { if (section === 'available') void load('available', 0, 'refresh'); }}
         onSaved={(fullName) => {
           setDriverName(fullName);
           setProfileOpen(false);
           setActionNotice('Perfil atualizado.');
         }} />}
+      {!agendaOpen && !profileOpen && offerPopup}
     </View>
   );
 }
@@ -372,47 +519,12 @@ function AppContent() {
   const [session, setSession] = useState<DriverSession | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [notice, setNotice] = useState('');
-  const [pushDestination, setPushDestination] = useState<{ section: DeliverySection } | null>(null);
-  const token = session?.token;
-
-  useEffect(() => {
-    const appId = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID;
-    if (!appId || restoring) return;
-    const controller = new AbortController();
-    let removeListener: (() => void) | undefined;
-    if (!token) setPushDestination(null);
-    void import('react-native-onesignal').then(async ({ OneSignal }) => {
-      if (controller.signal.aborted) return;
-      if (!pushInitialized) {
-        OneSignal.initialize(appId);
-        pushInitialized = true;
-      }
-      if (!token) {
-        OneSignal.logout();
-        return;
-      }
-      const onClick = ({ notification }: NotificationClickEvent) => {
-        const section = (notification.additionalData as { section?: string } | undefined)?.section;
-        if (section === 'available' || section === 'accepted') setPushDestination({ section });
-      };
-      OneSignal.Notifications.addEventListener('click', onClick);
-      removeListener = () => OneSignal.Notifications.removeEventListener('click', onClick);
-      const alias = await getDriverPushAlias(token, controller.signal);
-      if (controller.signal.aborted) return;
-      OneSignal.login(alias);
-      await OneSignal.Notifications.requestPermission(false);
-    }).catch((error) => {
-      if (!controller.signal.aborted) console.warn('Não foi possível iniciar o push do UniEntregador.', error);
-    });
-    return () => {
-      controller.abort();
-      removeListener?.();
-    };
-  }, [restoring, token]);
+  const pushDestination = useDriverPush(session?.token, restoring);
 
   useEffect(() => {
     let active = true;
-    SecureStore.getItemAsync(sessionKey).then((saved) => {
+    SecureStore.getItemAsync(sessionKey).then(async (saved) => {
+      if (saved && Platform.OS === 'ios') await SecureStore.setItemAsync(sessionKey, saved, sessionStorageOptions);
       if (active && saved) setSession({ token: saved, name: '' });
     })
       .catch(() => { if (active) setNotice('Não foi possível restaurar a sessão. Entre novamente.'); })
@@ -424,11 +536,12 @@ function AppContent() {
     setSession(null);
     setNotice('Sua sessão expirou. Entre novamente.');
     void SecureStore.deleteItemAsync(sessionKey).catch(() => undefined);
+    void stopDriverBackgroundLocation().catch(() => undefined);
   }, []);
 
   async function remember(session: DriverSession) {
     try {
-      await SecureStore.setItemAsync(sessionKey, session.token);
+      await SecureStore.setItemAsync(sessionKey, session.token, sessionStorageOptions);
     } catch {
       throw new Error('Não foi possível guardar sua sessão no dispositivo. Tente novamente.');
     }
@@ -438,6 +551,7 @@ function AppContent() {
 
   async function logout() {
     await SecureStore.deleteItemAsync(sessionKey);
+    void stopDriverBackgroundLocation().catch(() => undefined);
     setSession(null);
     setNotice('');
   }
