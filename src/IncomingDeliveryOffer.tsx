@@ -1,10 +1,45 @@
 import React, { useEffect, useState } from 'react';
 import { Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { formatOrderCode } from './api';
 import type { Delivery } from './api';
 import { useAppTheme } from './AppTheme';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const time = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+
+function DeliveryPopup({ children, embedded, onRequestClose }: {
+  children: React.ReactNode; embedded: boolean; onRequestClose: () => void;
+}) {
+  const content = (
+    <View style={[styles.overlay, embedded && styles.embedded]}>
+      <ScrollView contentContainerStyle={styles.layout} keyboardShouldPersistTaps="handled">
+        <View accessibilityViewIsModal style={styles.card}>{children}</View>
+      </ScrollView>
+    </View>
+  );
+  return embedded ? content : (
+    <Modal transparent animationType="fade" statusBarTranslucent onRequestClose={onRequestClose}>
+      {content}
+    </Modal>
+  );
+}
+
+export function OrderCancellationPopup({ orderId, onAcknowledge, embedded }: {
+  orderId: string; onAcknowledge: () => void; embedded: boolean;
+}) {
+  const theme = useAppTheme();
+  useEffect(() => { Keyboard.dismiss(); }, []);
+  return (
+    <DeliveryPopup embedded={embedded} onRequestClose={() => {}}>
+      <Text accessibilityRole="header" style={[styles.title, { color: theme.secondaryInk }]}>Pedido cancelado</Text>
+      <Text style={styles.address}>O pedido #{formatOrderCode(orderId)} foi cancelado.</Text>
+      <Pressable accessibilityRole="button" onPress={onAcknowledge}
+        style={({ pressed }) => [styles.accept, { backgroundColor: theme.primary }, pressed && styles.dimmed]}>
+        <Text style={[styles.acceptLabel, { color: theme.onPrimary }]}>OK</Text>
+      </Pressable>
+    </DeliveryPopup>
+  );
+}
 
 export function IncomingDeliveryOffer({ offer, deadline, busy, error, onAccept, onDecline, onClose, embedded = false }: {
   offer: Delivery; deadline: number; busy: boolean; error: string;
@@ -25,52 +60,43 @@ export function IncomingDeliveryOffer({ offer, deadline, busy, error, onAccept, 
   const trackWidth = `${Math.min(100, remaining * 100 / (offer.scheduledAt ? 300 : 60))}%` as const;
   const amount = offer.deliveryFee === null ? null : Number(offer.deliveryFee);
 
-  const content = (
-      <View style={[styles.overlay, embedded && styles.embedded]}>
-        <ScrollView contentContainerStyle={styles.layout} keyboardShouldPersistTaps="handled">
-          <View accessibilityViewIsModal style={styles.card}>
-            <View style={styles.heading}>
-              <Text accessibilityRole="header" style={[styles.title, { color: theme.secondaryInk }]}>Nova corrida</Text>
-              <Text accessibilityLabel={`${remaining} segundos restantes`} style={[styles.timer, { color: expired ? '#9f1239' : theme.primaryInk }]}>
-                {countdown}
-              </Text>
-            </View>
-            <View style={styles.track}><View style={[styles.progress, { width: trackWidth, backgroundColor: theme.primary }]} /></View>
-            <View style={styles.summary}>
-              <View style={styles.summaryItem}>
-                <Text style={styles.caption}>Valor da corrida</Text>
-                <Text style={styles.amount}>{amount === null ? 'A definir' : currency.format(amount)}</Text>
-              </View>
-              {offer.distanceMeters != null && <View style={styles.summaryItem}>
-                <Text style={styles.caption}>Distância</Text>
-                <Text style={styles.distance}>{(offer.distanceMeters / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km</Text>
-              </View>}
-            </View>
-            <View style={styles.route}>
-              <Text style={styles.caption}>Retirada</Text>
-              <Text style={[styles.store, { color: theme.secondaryInk }]}>{offer.pickup.storeName}</Text>
-              {!!offer.pickup.address && <Text style={styles.address}>{offer.pickup.address}</Text>}
-              <Text style={styles.caption}>Destino</Text>
-              <Text style={styles.address}>{offer.destinationAddress ?? offer.destinationArea ?? 'Endereço não informado'}</Text>
-              {offer.scheduledAt && <Text style={styles.address}>Retirada a partir de {time.format(new Date(offer.scheduledAt))}</Text>}
-            </View>
-            {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-            {expired && <Text accessibilityLiveRegion="polite" style={styles.error}>Oferta expirada.</Text>}
-            <Pressable accessibilityRole="button" accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onAccept}
-              style={({ pressed }) => [styles.accept, { backgroundColor: theme.primary }, (pressed || disabled) && styles.dimmed]}>
-              <Text style={[styles.acceptLabel, { color: theme.onPrimary }]}>{busy ? 'Respondendo…' : 'Aceitar corrida'}</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" disabled={busy} onPress={expired ? onClose : onDecline} style={styles.secondary}>
-              <Text style={{ color: theme.secondaryInk, fontWeight: '700' }}>{expired ? 'Fechar' : 'Recusar oferta'}</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
+  return (
+    <DeliveryPopup embedded={embedded} onRequestClose={() => { if (!busy) onClose(); }}>
+      <View style={styles.heading}>
+        <Text accessibilityRole="header" style={[styles.title, { color: theme.secondaryInk }]}>Nova corrida</Text>
+        <Text accessibilityLabel={`${remaining} segundos restantes`} style={[styles.timer, { color: expired ? '#9f1239' : theme.primaryInk }]}>
+          {countdown}
+        </Text>
       </View>
-  );
-  return embedded ? content : (
-    <Modal transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!busy) onClose(); }}>
-      {content}
-    </Modal>
+      <View style={styles.track}><View style={[styles.progress, { width: trackWidth, backgroundColor: theme.primary }]} /></View>
+      <View style={styles.summary}>
+        <View style={styles.summaryItem}>
+          <Text style={styles.caption}>Valor da corrida</Text>
+          <Text style={styles.amount}>{amount === null ? 'A definir' : currency.format(amount)}</Text>
+        </View>
+        {offer.distanceMeters != null && <View style={styles.summaryItem}>
+          <Text style={styles.caption}>Distância</Text>
+          <Text style={styles.distance}>{(offer.distanceMeters / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km</Text>
+        </View>}
+      </View>
+      <View style={styles.route}>
+        <Text style={styles.caption}>Retirada</Text>
+        <Text style={[styles.store, { color: theme.secondaryInk }]}>{offer.pickup.storeName}</Text>
+        {!!offer.pickup.address && <Text style={styles.address}>{offer.pickup.address}</Text>}
+        <Text style={styles.caption}>Destino</Text>
+        <Text style={styles.address}>{offer.destinationAddress ?? offer.destinationArea ?? 'Endereço não informado'}</Text>
+        {offer.scheduledAt && <Text style={styles.address}>Retirada a partir de {time.format(new Date(offer.scheduledAt))}</Text>}
+      </View>
+      {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+      {expired && <Text accessibilityLiveRegion="polite" style={styles.error}>Oferta expirada.</Text>}
+      <Pressable accessibilityRole="button" accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onAccept}
+        style={({ pressed }) => [styles.accept, { backgroundColor: theme.primary }, (pressed || disabled) && styles.dimmed]}>
+        <Text style={[styles.acceptLabel, { color: theme.onPrimary }]}>{busy ? 'Respondendo…' : 'Aceitar corrida'}</Text>
+      </Pressable>
+      <Pressable accessibilityRole="button" disabled={busy} onPress={expired ? onClose : onDecline} style={styles.secondary}>
+        <Text style={{ color: theme.secondaryInk, fontWeight: '700' }}>{expired ? 'Fechar' : 'Recusar oferta'}</Text>
+      </Pressable>
+    </DeliveryPopup>
   );
 }
 

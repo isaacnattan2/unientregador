@@ -10,12 +10,12 @@ import type { Delivery, DriverSession } from './src/api';
 import { DeliveryNavigation } from './src/DeliveryNavigation';
 import { DriverProfileScreen } from './src/DriverProfileScreen';
 import { DriverDispatchControls } from './src/DriverDispatchControls';
-import { IncomingDeliveryOffer } from './src/IncomingDeliveryOffer';
+import { IncomingDeliveryOffer, OrderCancellationPopup } from './src/IncomingDeliveryOffer';
 import { AppThemeProvider, useAppTheme } from './src/AppTheme';
 import type { AppPalette } from './src/AppTheme';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useDriverPush } from './src/DriverPush';
-import type { PushDestination } from './src/DriverPush';
+import type { OrderCancellationNotice, PushDestination } from './src/DriverPush';
 
 import { sessionKey, sessionStorageOptions, stopDriverBackgroundLocation } from './src/DriverBackgroundLocation';
 type DeliverySection = 'available' | 'accepted';
@@ -193,9 +193,11 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
   );
 }
 
-function Deliveries({ session, onExpired, onLogout, pushDestination }: {
+function Deliveries({ session, onExpired, onLogout, pushDestination, cancellation, onAcknowledgeCancellation }: {
   session: DriverSession; onExpired: () => void; onLogout: () => Promise<void>;
   pushDestination: PushDestination | null;
+  cancellation?: OrderCancellationNotice;
+  onAcknowledgeCancellation: (id: string) => void;
 }) {
   const styles = useStyles();
   const { primary } = useAppTheme();
@@ -322,6 +324,14 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
   useEffect(() => { void refreshOffer(); }, [refreshOffer]);
 
   useEffect(() => {
+    if (!cancellation) return;
+    const { orderId } = cancellation;
+    setIncoming((current) => current?.offer.orderId === orderId ? null : current);
+    setMapOrderId((current) => current === orderId ? null : current);
+    void load(section, 0, 'refresh');
+  }, [cancellation, load, section]);
+
+  useEffect(() => {
     function refresh() {
       if (AppState.currentState === 'active' && !activeRequest.current && !actionRequest.current) void load(section, 0, 'refresh');
     }
@@ -424,6 +434,9 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
     onAccept={() => void submitDelivery(incoming.offer, { kind: 'accept' })}
     onDecline={() => void submitDelivery(incoming.offer, { kind: 'decline' })}
     onClose={() => closeOffer(incoming.offer)} />;
+  const popup = cancellation ? <OrderCancellationPopup key={cancellation.id} orderId={cancellation.orderId}
+    embedded={agendaOpen || profileOpen} onAcknowledge={() => onAcknowledgeCancellation(cancellation.id)} /> : offerPopup;
+  const dismissPopup = cancellation ? () => {} : dismissIncoming;
 
   return (
     <View style={styles.fill}>
@@ -440,7 +453,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
           onPress={() => setProfileOpen(true)} />
       </View>
       <DriverDispatchControls token={token} onExpired={onExpired} agenda={agendaOpen} setAgenda={setAgendaOpen}
-        offerOverlay={agendaOpen ? offerPopup : undefined} onDismissOffer={agendaOpen ? dismissIncoming : undefined} />
+        offerOverlay={agendaOpen ? popup : undefined} onDismissOffer={agendaOpen ? dismissPopup : undefined} />
       <View accessibilityRole="tablist" style={styles.deliveryTabs}>
         {(['available', 'accepted'] as const).map((target) => (
           <Pressable key={target} accessibilityRole="tab" accessibilityState={{ selected: section === target, disabled: submission !== null }}
@@ -496,7 +509,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
           )}
         </>} />
       {profileOpen && <DriverProfileScreen token={token} onExpired={onExpired}
-        offerOverlay={offerPopup} onDismissOffer={dismissIncoming}
+        offerOverlay={popup} onDismissOffer={dismissPopup}
         onClose={() => setProfileOpen(false)}
         onRateSaved={() => { if (section === 'available') void load('available', 0, 'refresh'); }}
         onSaved={(fullName) => {
@@ -504,7 +517,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination }: {
           setProfileOpen(false);
           setActionNotice('Perfil atualizado.');
         }} />}
-      {!agendaOpen && !profileOpen && offerPopup}
+      {!agendaOpen && !profileOpen && popup}
     </View>
   );
 }
@@ -519,7 +532,7 @@ function AppContent() {
   const [session, setSession] = useState<DriverSession | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [notice, setNotice] = useState('');
-  const pushDestination = useDriverPush(session?.token, restoring);
+  const { destination: pushDestination, cancellation, acknowledgeCancellation } = useDriverPush(session?.token, restoring);
 
   useEffect(() => {
     let active = true;
@@ -561,7 +574,8 @@ function AppContent() {
       <SafeAreaView style={styles.screen}>
         <StatusBar barStyle="dark-content" />
         {restoring ? <View style={styles.center}><ActivityIndicator size="large" color={primary} /><Text style={styles.description}>Restaurando sessão…</Text></View> :
-          session ? <Deliveries key={session.token} session={session} onExpired={expire} onLogout={logout} pushDestination={pushDestination} /> :
+          session ? <Deliveries key={session.token} session={session} onExpired={expire} onLogout={logout} pushDestination={pushDestination}
+            cancellation={cancellation} onAcknowledgeCancellation={acknowledgeCancellation} /> :
             <Login onLogin={remember} notice={notice} />}
       </SafeAreaView>
     </SafeAreaProvider>
