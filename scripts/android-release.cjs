@@ -1,4 +1,5 @@
 const { spawnSync } = require('node:child_process');
+const { copyFileSync, existsSync } = require('node:fs');
 const path = require('node:path');
 
 const project = path.resolve(__dirname, '..');
@@ -6,6 +7,11 @@ const expoCli = path.relative(project, require.resolve('expo/bin/cli'));
 const args = ['run:android', '--variant', 'release', '--device', '--no-bundler', ...process.argv.slice(2)];
 
 function runRelease(projectPath) {
+  const firebaseConfig = path.join(projectPath, 'google-services.json');
+  const androidApp = path.join(projectPath, 'android', 'app');
+  if (existsSync(firebaseConfig) && existsSync(androidApp)) {
+    copyFileSync(firebaseConfig, path.join(androidApp, 'google-services.json'));
+  }
   const result = spawnSync(process.execPath, [expoCli, ...args], {
     cwd: projectPath,
     stdio: 'inherit',

@@ -8,6 +8,8 @@ const task = 'uni-driver-availability-location';
 export const sessionKey = 'uniweb.driver.session';
 export const sessionStorageOptions = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 
+export class DriverLocationPermissionError extends Error {}
+
 let change = Promise.resolve();
 let sending = false;
 let lastSentAt = 0;
@@ -51,10 +53,14 @@ export async function requestDriverBackgroundPermission() {
 
 export function startDriverBackgroundLocation() {
   return changeTracking(async () => {
-    if (AppState.currentState !== 'active' || await Location.hasStartedLocationUpdatesAsync(task)) return;
-    if (Platform.OS === 'ios' && !(await Location.getBackgroundPermissionsAsync()).granted) {
-      throw new Error('Para receber ofertas em segundo plano, permita o acesso à localização em “Sempre” nos Ajustes.');
+    if (AppState.currentState !== 'active') return;
+    if (!(await Location.getForegroundPermissionsAsync()).granted) {
+      throw new DriverLocationPermissionError('Para atualizar sua localização durante o check-in, permita o acesso à localização enquanto usa o app.');
     }
+    if (Platform.OS === 'ios' && !(await Location.getBackgroundPermissionsAsync()).granted) {
+      throw new DriverLocationPermissionError('Para receber ofertas em segundo plano, permita o acesso à localização em “Sempre” nos Ajustes.');
+    }
+    if (await Location.hasStartedLocationUpdatesAsync(task) || AppState.currentState !== 'active') return;
     await Location.startLocationUpdatesAsync(task, {
       accuracy: Location.Accuracy.High,
       timeInterval: 30000,

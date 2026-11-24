@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1022612665241",
+    "project_id": "projetouni-937eb",
+    "storage_bucket": "projetouni-937eb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1022612665241:android:4471bc9aecc6207c13d908",
+        "android_client_info": {
+          "package_name": "br.com.uniweb.unientregador"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAxOR2PdOuq2JRplZPCCl3LK1sMcWrGkik"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

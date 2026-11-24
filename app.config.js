@@ -1,4 +1,6 @@
 const { withProjectBuildGradle } = require('expo/config-plugins');
+const { existsSync } = require('node:fs');
+const { join } = require('node:path');
 
 function withShortExpoCmakePath(config) {
   return withProjectBuildGradle(config, (mod) => {
@@ -15,6 +17,10 @@ const pushMode = process.env.ONESIGNAL_APNS_MODE || 'development';
 
 module.exports = ({ config }) => ({
   ...config,
+  android: {
+    ...config.android,
+    ...(existsSync(join(__dirname, 'google-services.json')) && { googleServicesFile: './google-services.json' }),
+  },
   ios: {
     ...config.ios,
     infoPlist: {

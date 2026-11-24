@@ -5,7 +5,7 @@ import * as Location from 'expo-location';
 import { addDriverShift, addDriverWeeklyShift, ApiError, deleteDriverShift, deleteDriverWeeklyShift, getDriverDispatch, setDriverPresence } from './api';
 import type { DriverShift, DriverWeeklyShift } from './api';
 import { useAppTheme } from './AppTheme';
-import { requestDriverBackgroundPermission, startDriverBackgroundLocation, stopDriverBackgroundLocation } from './DriverBackgroundLocation';
+import { DriverLocationPermissionError, requestDriverBackgroundPermission, startDriverBackgroundLocation, stopDriverBackgroundLocation } from './DriverBackgroundLocation';
 
 const dateTime = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const weekdays = [1, 2, 3, 4, 5];
@@ -134,6 +134,7 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
   const [busy, setBusy] = useState(false);
   const [waitingForGps, setWaitingForGps] = useState(false);
   const [error, setError] = useState('');
+  const [trackingError, setTrackingError] = useState<Error | null>(null);
   const sending = useRef(false);
   const locationAttempt = useRef<AbortController | null>(null);
 
@@ -163,14 +164,17 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
   useEffect(() => {
     if (online === undefined) return;
     if (!online) {
+      setTrackingError(null);
       void stopDriverBackgroundLocation().catch(() => undefined);
       return;
     }
     let active = true;
     let updating = false;
     function startTracking() {
-      void startDriverBackgroundLocation().catch((err) => {
-        if (active) setError(err instanceof Error ? err.message : 'Não foi possível atualizar a localização em segundo plano.');
+      void startDriverBackgroundLocation().then(() => {
+        if (active && AppState.currentState === 'active') setTrackingError(null);
+      }).catch((err) => {
+        if (active) setTrackingError(err instanceof DriverLocationPermissionError ? err : new Error('Não foi possível atualizar a localização em segundo plano.'));
       });
     }
     async function heartbeat() {
@@ -317,6 +321,14 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
         {button('Agenda', () => { setError(''); setAgenda(true); })}
       </View>
       {!agenda && gpsPrompt}
+      {!agenda && online && trackingError && (
+        <>
+          <Text accessibilityRole="alert" style={styles.error}>{trackingError.message}</Text>
+          {trackingError instanceof DriverLocationPermissionError && button('Abrir configurações', () => {
+            void Linking.openSettings().catch(() => setError('Não foi possível abrir as configurações do app.'));
+          })}
+        </>
+      )}
       {!agenda && !!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
       <Modal visible={agenda} animationType="slide" onRequestClose={onDismissOffer ?? (() => { if (!busy) setAgenda(false); })}>
         <SafeAreaView style={styles.screen}>
