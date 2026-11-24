@@ -1,10 +1,12 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
+import * as Updates from 'expo-updates';
+import appConfig from './app.json';
 import { acceptDelivery, ApiError, cancelDelivery, confirmDelivery, formatOrderCode, getCurrentDriverOffer, getDeliveries, getDriverName, loginDriver, pickupDelivery, respondToDeliveryOffer, setDriverPresence } from './src/api';
 import type { Delivery, DriverSession } from './src/api';
 import { DeliveryNavigation } from './src/DeliveryNavigation';
@@ -16,12 +18,17 @@ import type { AppPalette } from './src/AppTheme';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useDriverPush } from './src/DriverPush';
 import type { OrderCancellationNotice, PushDestination } from './src/DriverPush';
+import { useAppUpdates } from './src/useAppUpdates';
+import type { AppUpdates } from './src/useAppUpdates';
 
 import { sessionKey, sessionStorageOptions, stopDriverBackgroundLocation } from './src/DriverBackgroundLocation';
 type DeliverySection = 'available' | 'accepted';
 const muted = '#4d617a';
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateTime = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+const appVersion = appConfig.expo.extra.displayVersion.trim() ||
+  Updates.runtimeVersion || appConfig.expo.version;
+const activeUpdate = !Updates.isEmbeddedLaunch && Updates.updateId ? Updates.updateId.slice(0, 8) : null;
 const messageOf = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
 
 function Button({ label, onPress, disabled = false, secondary = false, style }: {
@@ -193,11 +200,12 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
   );
 }
 
-function Deliveries({ session, onExpired, onLogout, pushDestination, cancellation, onAcknowledgeCancellation }: {
+function Deliveries({ session, onExpired, onLogout, pushDestination, cancellation, onAcknowledgeCancellation, updates }: {
   session: DriverSession; onExpired: () => void; onLogout: () => Promise<void>;
   pushDestination: PushDestination | null;
   cancellation?: OrderCancellationNotice;
   onAcknowledgeCancellation: (id: string) => void;
+  updates: AppUpdates;
 }) {
   const styles = useStyles();
   const { primary } = useAppTheme();
@@ -444,12 +452,13 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
         <View style={styles.feedIdentity}>
           <Text style={[styles.brand, styles.feedBrand]}>UniEntregador</Text>
           {!!driverName && <Text style={styles.feedDriverName} numberOfLines={2}>{driverName}</Text>}
+          <Text style={styles.feedVersion}>Versão {appVersion}{activeUpdate ? ` · Atualização ${activeUpdate}` : ''}</Text>
         </View>
         <Button label={signingOut ? 'Saindo…' : 'Sair'} secondary style={styles.feedAction}
           disabled={signingOut || submission !== null} onPress={() => void signOut()} />
       </View>
       <View style={styles.profileActions}>
-        <Button label="Meu perfil" secondary style={styles.feedAction} disabled={signingOut || submission !== null}
+        <Button label="Meu perfil3" secondary style={styles.feedAction} disabled={signingOut || submission !== null}
           onPress={() => setProfileOpen(true)} />
       </View>
       <DriverDispatchControls token={token} onExpired={onExpired} agenda={agendaOpen} setAgenda={setAgendaOpen}
@@ -509,7 +518,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
           )}
         </>} />
       {profileOpen && <DriverProfileScreen token={token} onExpired={onExpired}
-        offerOverlay={popup} onDismissOffer={dismissPopup}
+        offerOverlay={popup} onDismissOffer={dismissPopup} updates={updates}
         onClose={() => setProfileOpen(false)}
         onRateSaved={() => { if (section === 'available') void load('available', 0, 'refresh'); }}
         onSaved={(fullName) => {
@@ -532,7 +541,8 @@ function AppContent() {
   const [session, setSession] = useState<DriverSession | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [notice, setNotice] = useState('');
-  const { destination: pushDestination, cancellation, acknowledgeCancellation } = useDriverPush(session?.token, restoring);
+  const { destination: pushDestination, cancellation, acknowledgeCancellation, updateNotice } = useDriverPush(session?.token, restoring);
+  const updates = useAppUpdates(!restoring && !cancellation, updateNotice);
 
   useEffect(() => {
     let active = true;
@@ -575,7 +585,7 @@ function AppContent() {
         <StatusBar barStyle="dark-content" />
         {restoring ? <View style={styles.center}><ActivityIndicator size="large" color={primary} /><Text style={styles.description}>Restaurando sessão…</Text></View> :
           session ? <Deliveries key={session.token} session={session} onExpired={expire} onLogout={logout} pushDestination={pushDestination}
-            cancellation={cancellation} onAcknowledgeCancellation={acknowledgeCancellation} /> :
+            cancellation={cancellation} onAcknowledgeCancellation={acknowledgeCancellation} updates={updates} /> :
             <Login onLogin={remember} notice={notice} />}
       </SafeAreaView>
     </SafeAreaProvider>
@@ -612,6 +622,7 @@ const createStyles = ({ primary, primaryInk, secondary, secondaryInk, onPrimary,
   feedIdentity: { flex: 1, minWidth: 0, gap: 2 },
   feedBrand: { marginBottom: 0 },
   feedDriverName: { color: muted, fontSize: 14 },
+  feedVersion: { color: muted, fontSize: 12 },
   feedAction: { marginTop: 0 },
   profileActions: { alignItems: 'flex-end', width: '100%', maxWidth: 780, alignSelf: 'center', paddingHorizontal: 16, paddingTop: 12 },
   deliveryTabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, width: '100%', maxWidth: 780, alignSelf: 'center' },

@@ -6,6 +6,7 @@ import { ApiError, getDriverDeliveryRate, getDriverProfile, saveDriverDeliveryRa
 import type { DriverDeliveryRate, DriverProfile } from './api';
 import { useAppTheme } from './AppTheme';
 import type { AppPalette } from './AppTheme';
+import type { AppUpdates } from './useAppUpdates';
 
 const vehicles = [
   ['bicycle', 'Bicicleta'], ['motorcycle', 'Moto'], ['car', 'Carro'],
@@ -15,8 +16,9 @@ const vehicles = [
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const formatRate = (cents: number) => currency.format(cents / 100) + '/km';
 
-export function DriverProfileScreen({ token, onClose, onSaved, onRateSaved, onExpired, offerOverlay, onDismissOffer }: {
+export function DriverProfileScreen({ token, onClose, onSaved, onRateSaved, onExpired, offerOverlay, onDismissOffer, updates }: {
   offerOverlay?: React.ReactNode; onDismissOffer?: () => void;
+  updates: AppUpdates;
   token: string; onClose: () => void; onSaved: (name: string) => void; onRateSaved: () => void; onExpired: () => void;
 }) {
   const theme = useAppTheme();
@@ -144,6 +146,16 @@ export function DriverProfileScreen({ token, onClose, onSaved, onRateSaved, onEx
               <Text accessibilityRole="header" style={styles.title}>Meu perfil</Text>
               <Pressable accessibilityRole="button" disabled={saving || savingRate} onPress={close} style={styles.option}>
                 <Text style={styles.label}>Voltar</Text>
+              </Pressable>
+            </View>
+            <View style={styles.group}>
+              <Text accessibilityRole="header" style={styles.subtitle}>Atualizações do app</Text>
+              {updates.available && !updates.phase && <Text accessibilityLiveRegion="polite">Há uma atualização disponível.</Text>}
+              <Pressable accessibilityRole="button" disabled={updates.phase !== null}
+                accessibilityState={{ disabled: updates.phase !== null, busy: updates.phase !== null }}
+                onPress={() => void updates.check(true)} style={styles.option}>
+                <Text style={styles.label}>{updates.phase === 'updating' ? 'Atualizando…' : updates.phase === 'checking'
+                  ? 'Verificando…' : updates.available ? 'Atualizar app' : 'Verificar atualizações'}</Text>
               </Pressable>
             </View>
             {loading && <ActivityIndicator color={theme.primary} />}

@@ -1,6 +1,7 @@
 {
   "build": {
     "preview": {
+      "channel": "preview",
       "distribution": "internal",
       "android": { "buildType": "apk" }
     },
@@ -8,6 +9,10 @@
       "distribution": "internal",
       "ios": { "simulator": true }
     },
-    "production": { "env": { "ONESIGNAL_APNS_MODE": "production" } }
+    "production": {
+      "channel": "production",
+      "android": { "buildType": "apk" },
+      "env": { "ONESIGNAL_APNS_MODE": "production", "UNI_UPDATE_CHANNEL": "production" }
+    }
   }
 }

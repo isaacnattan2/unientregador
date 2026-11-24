@@ -17,6 +17,13 @@ const pushMode = process.env.ONESIGNAL_APNS_MODE || 'development';
 
 module.exports = ({ config }) => ({
   ...config,
+  updates: {
+    ...config.updates,
+    requestHeaders: {
+      ...config.updates?.requestHeaders,
+      'expo-channel-name': process.env.UNI_UPDATE_CHANNEL || 'preview',
+    },
+  },
   android: {
     ...config.android,
     ...(existsSync(join(__dirname, 'google-services.json')) && { googleServicesFile: './google-services.json' }),
