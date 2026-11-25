@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar,
-  StyleSheet, Text, TextInput, View,
+  StyleSheet, Switch, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
@@ -23,6 +23,7 @@ import type { AppUpdates } from './src/useAppUpdates';
 
 import { sessionKey, sessionStorageOptions, stopDriverBackgroundLocation } from './src/DriverBackgroundLocation';
 type DeliverySection = 'available' | 'accepted';
+const deliveryKey = (item: Delivery) => item.missedOfferId ?? item.orderId;
 const muted = '#4d617a';
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateTime = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -111,7 +112,7 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
   const [reason, setReason] = useState('');
   const [reporting, setReporting] = useState(false);
   const [now, setNow] = useState(Date.now);
-  const status = delivery.status ?? 'available';
+  const status = delivery.status === 'missed' ? 'available' : delivery.status ?? 'available';
   const active = delivery.status === 'in_progress';
   const incident = delivery.dispatchState === 'incident';
   const assigned = delivery.dispatchState === 'assigned';
@@ -214,6 +215,8 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
   const [driverName, setDriverName] = useState(name);
   const [profileOpen, setProfileOpen] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
+  const [onlyMissed, setOnlyMissed] = useState(false);
+  const onlyMissedRef = useRef(false);
   const [items, setItems] = useState<Delivery[]>([]);
   const [section, setSection] = useState<DeliverySection>(pushDestination?.section ?? 'available');
   const [nextOffset, setNextOffset] = useState<number | null>(null);
@@ -287,10 +290,10 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
     setPending(mode);
     setError('');
     try {
-      const page = await getDeliveries(token, target, offset, controller.signal);
+      const page = await getDeliveries(token, target, offset, controller.signal, onlyMissedRef.current);
       if (controller.signal.aborted) return;
       setItems((previous) => mode === 'more' ? [
-        ...previous, ...page.items.filter((item) => !previous.some((old) => old.orderId === item.orderId)),
+        ...previous, ...page.items.filter((item) => !previous.some((old) => deliveryKey(old) === deliveryKey(item))),
       ] : page.items);
       setNextOffset(page.nextOffset);
     } catch (err) {
@@ -324,6 +327,8 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
       return;
     }
     const target = pushDestination.section;
+    onlyMissedRef.current = false;
+    setOnlyMissed(false);
     setSection(target);
     setItems([]);
     setNextOffset(null);
@@ -355,6 +360,10 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
     });
     return () => { if (interval !== undefined) clearInterval(interval); listener.remove(); };
   }, [load, offerMode, refreshOffer, section]);
+
+  useEffect(() => {
+    if (checkinBlockNotice && section === 'accepted') void load('accepted', 0, 'refresh');
+  }, [checkinBlockNotice, load, section]);
 
   async function changeSection(target: typeof section) {
     setSection(target);
@@ -462,7 +471,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
         <Button label="Meu perfil" secondary style={styles.feedAction} disabled={signingOut || submission !== null}
           onPress={() => setProfileOpen(true)} />
       </View>
-      <DriverDispatchControls hasOrderPopup={!!popup} checkinBlockNotice={checkinBlockNotice} token={token} onExpired={onExpired} agenda={agendaOpen} setAgenda={setAgendaOpen}
+      <DriverDispatchControls checkinBlockNotice={checkinBlockNotice} token={token} onExpired={onExpired} agenda={agendaOpen} setAgenda={setAgendaOpen}
         offerOverlay={agendaOpen ? popup : undefined} onDismissOffer={agendaOpen ? dismissPopup : undefined} />
       <View accessibilityRole="tablist" style={styles.deliveryTabs}>
         {(['available', 'accepted'] as const).map((target) => (
@@ -479,7 +488,13 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
           </Pressable>
         ))}
       </View>
-      <FlatList data={items} keyboardShouldPersistTaps="handled" keyExtractor={(item) => item.orderId} renderItem={({ item }) => (
+      <FlatList data={items} keyboardShouldPersistTaps="handled" keyExtractor={deliveryKey} renderItem={({ item }) => item.status === 'missed' ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle} accessibilityRole="header">Pedido #{formatOrderCode(item.orderId)}</Text>
+          <Text style={styles.description}>{item.pickup.storeName}</Text>
+          <Text style={styles.description}>Sem resposta{item.missedAt ? ' em ' + new Date(item.missedAt).toLocaleString('pt-BR') : ''}</Text>
+        </View>
+      ) : (
         <DeliveryCard delivery={item} submitting={submission?.id === item.orderId ? submission.kind : undefined}
           disabled={submission !== null || signingOut}
           actionError={actionError?.id === item.orderId ? actionError.message : ''}
@@ -495,8 +510,21 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
             <Text style={styles.feedTitle} accessibilityRole="header">
               {section === 'available' ? 'Entregas disponíveis' : 'Minhas entregas'}
             </Text>
+            {section === 'accepted' && (
+              <View style={styles.missedOffersFilter}>
+                <Text style={styles.description}>Somente sem resposta</Text>
+                <Switch accessibilityLabel="Somente sem resposta" value={onlyMissed}
+                  disabled={submission !== null} onValueChange={(value) => {
+                    onlyMissedRef.current = value;
+                    setOnlyMissed(value);
+                    setItems([]);
+                    setNextOffset(null);
+                    void load('accepted', 0, 'initial');
+                  }} />
+              </View>
+            )}
             {!!actionNotice && <Text accessibilityLiveRegion="polite" style={styles.description}>{actionNotice}</Text>}
-            {actionError && !items.some((item) => item.orderId === actionError.id) &&
+            {actionError && !items.some((item) => item.status !== 'missed' && item.orderId === actionError.id) &&
               <Text accessibilityRole="alert" style={styles.error}>{actionError.message}</Text>}
           </View>
         }
@@ -505,7 +533,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
           <View style={styles.empty}><ActivityIndicator color={primary} /><Text style={styles.description}>Buscando entregas…</Text></View>
         ) : !error ? (
           <View style={styles.empty}><Text style={styles.cardTitle}>
-            {section === 'available' ? 'Nenhuma entrega disponível' : 'Você ainda não aceitou entregas'}
+            {section === 'available' ? 'Nenhuma entrega disponível' : onlyMissed ? 'Nenhum pedido sem resposta' : 'Nenhuma entrega no histórico'}
           </Text>
             <Text style={styles.description}>Puxe para baixo para atualizar a lista.</Text></View>
         ) : undefined}
@@ -627,6 +655,7 @@ const createStyles = ({ primary, primaryInk, secondary, secondaryInk, onPrimary,
   feedAction: { marginTop: 0 },
   profileActions: { alignItems: 'flex-end', width: '100%', maxWidth: 780, alignSelf: 'center', paddingHorizontal: 16, paddingTop: 12 },
   deliveryTabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, width: '100%', maxWidth: 780, alignSelf: 'center' },
+  missedOffersFilter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   deliveryTab: { flex: 1, minHeight: 44, justifyContent: 'center', borderRadius: 8, padding: 8, backgroundColor: '#fff' },
   selectedTab: { backgroundColor: primary },
   deliveryTabLabel: { textAlign: 'center', fontSize: 15, fontWeight: '700', color: secondaryInk },

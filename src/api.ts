@@ -38,7 +38,9 @@ export interface Delivery {
   pickup: { storeId: string; storeName: string; address: string | null };
   destinationArea: string | null;
   destinationAddress?: string | null;
-  status?: 'in_progress' | 'delivered' | 'cancelled' | 'cancelled_by_store';
+  missedOfferId?: string;
+  missedAt?: string;
+  status?: 'missed' | 'in_progress' | 'delivered' | 'cancelled' | 'cancelled_by_store';
   deliveryFee: string | number | null;
   distanceMeters?: number | null;
   rateCents?: number | null;
@@ -166,8 +168,9 @@ export async function saveDriverDeliveryRate(token: string, rateCents: number) {
   }) as DriverDeliveryRate;
 }
 
-export async function getDeliveries(token: string, section: 'available' | 'accepted', offset: number, signal: AbortSignal): Promise<DeliveryPage> {
-  const result = await request('/orders/' + section + '-deliveries?limit=20&offset=' + offset, {
+export async function getDeliveries(token: string, section: 'available' | 'accepted', offset: number, signal: AbortSignal, onlyMissed = false): Promise<DeliveryPage> {
+  const result = await request('/orders/' + section + '-deliveries?limit=20&offset=' + offset +
+    (section === 'accepted' ? '&history=' + (onlyMissed ? 'missed' : 'all') : ''), {
     signal, headers: { Authorization: 'Bearer ' + token },
   }).catch((error) => {
     if (error instanceof ApiError && error.status === 404) {

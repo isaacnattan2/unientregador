@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
-import type { DriverPresence, MissedDriverOffer } from './api';
+import type { DriverPresence } from './api';
 import { addDriverShift, addDriverWeeklyShift, ApiError, deleteDriverShift, deleteDriverWeeklyShift, getDriverDispatch, setDriverPresence } from './api';
 import type { DriverShift, DriverWeeklyShift } from './api';
 import { useAppTheme } from './AppTheme';
@@ -118,10 +118,9 @@ function waitForGps(signal: AbortSignal): Promise<boolean> {
   });
 }
 
-export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, offerOverlay, onDismissOffer, checkinBlockNotice, hasOrderPopup }: {
+export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, offerOverlay, onDismissOffer, checkinBlockNotice }: {
   token: string; onExpired: () => void; agenda: boolean; setAgenda: (open: boolean) => void;
   checkinBlockNotice?: string;
-  hasOrderPopup?: boolean;
   offerOverlay?: React.ReactNode; onDismissOffer?: () => void;
 }) {
   const { primary, onPrimary, secondaryInk } = useAppTheme();
@@ -134,10 +133,6 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
     Math.floor(blockSeconds / 60) % 60,
     blockSeconds % 60,
   ].map((part) => String(part).padStart(2, '0')).join(':');
-  const [showMissed, setShowMissed] = useState(false);
-  const [missedOffers, setMissedOffers] = useState<MissedDriverOffer[]>();
-  const [missedError, setMissedError] = useState(false);
-  const [missedRevision, setMissedRevision] = useState(0);
   const [shifts, setShifts] = useState<DriverShift[]>([]);
   const [weeklyShifts, setWeeklyShifts] = useState<DriverWeeklyShift[]>([]);
   const [starts, setStarts] = useState('');
@@ -199,33 +194,6 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
     const timer = setInterval(tick, 250);
     return () => clearInterval(timer);
   }, [blockDeadline]);
-
-  useEffect(() => {
-    if (hasOrderPopup) setShowMissed(false);
-  }, [hasOrderPopup]);
-
-  useEffect(() => {
-    if (!showMissed) return;
-    const controller = new AbortController();
-    async function refresh() {
-      try {
-        const data = await getDriverDispatch(token, controller.signal);
-        if (!controller.signal.aborted) {
-          setMissedOffers(data.missedOffers ?? []);
-          setMissedError(false);
-        }
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        if (err instanceof ApiError && err.status === 401) onExpired();
-        else setMissedError(true);
-      }
-    }
-    setMissedOffers(undefined);
-    setMissedError(false);
-    void refresh();
-    const timer = setInterval(() => void refresh(), 30000);
-    return () => { controller.abort(); clearInterval(timer); };
-  }, [showMissed, missedRevision, token, onExpired, checkinBlockNotice]);
 
   useEffect(() => {
     if (online === undefined) return;
@@ -391,33 +359,11 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
         {button(blocked ? 'Check-in bloqueado' : waitingForGps ? 'Aguardando GPS…' : busy ? 'Aguarde…' : online ? 'Fazer check-out' : 'Fazer check-in',
           () => void apply(updateCheckIn), !online, busy || blocked)}
         {button('Agenda', () => { setError(''); setAgenda(true); })}
-        {button('Sem resposta', () => setShowMissed(true))}
       </View>
       {blocked && <View>
         <Text accessibilityRole="alert" style={styles.error}>Check-out automático por não responder a 3 pedidos.</Text>
         <Text style={[styles.title, { color: secondaryInk }]}>Tempo restante: {countdown}</Text>
       </View>}
-      <Modal visible={showMissed} animationType="slide" onRequestClose={() => setShowMissed(false)}>
-        <SafeAreaView style={styles.screen}>
-          <ScrollView contentContainerStyle={styles.agenda}>
-            <View style={styles.row}>
-              <Text accessibilityRole="header" style={[styles.title, { color: secondaryInk }]}>Pedidos sem resposta</Text>
-              {button('Fechar', () => setShowMissed(false), false, false)}
-            </View>
-            {missedError ? <>
-              <Text accessibilityRole="alert" style={styles.error}>Não foi possível carregar o histórico.</Text>
-              {button('Tentar novamente', () => setMissedRevision((value) => value + 1), false, false)}
-            </> : missedOffers === undefined ? <Text style={{ color: secondaryInk }}>Carregando…</Text>
-              : missedOffers.length === 0 ? <Text style={{ color: secondaryInk }}>Nenhum pedido sem resposta registrado.</Text>
-              : missedOffers.map((offer) => (
-                <View key={offer.id}>
-                  <Text style={[styles.title, { color: secondaryInk }]}>Pedido #{offer.order_number || offer.order_id.slice(0, 8).toUpperCase()}</Text>
-                  <Text style={{ color: secondaryInk }}>Sem resposta em {new Date(offer.missed_at).toLocaleString('pt-BR')}</Text>
-                </View>
-              ))}
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
       {!agenda && gpsPrompt}
       {!agenda && online && trackingError && (
         <>
