@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+import type { DriverPresence, MissedDriverOffer } from './api';
 import { addDriverShift, addDriverWeeklyShift, ApiError, deleteDriverShift, deleteDriverWeeklyShift, getDriverDispatch, setDriverPresence } from './api';
 import type { DriverShift, DriverWeeklyShift } from './api';
 import { useAppTheme } from './AppTheme';
@@ -117,12 +118,26 @@ function waitForGps(signal: AbortSignal): Promise<boolean> {
   });
 }
 
-export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, offerOverlay, onDismissOffer }: {
+export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, offerOverlay, onDismissOffer, checkinBlockNotice, hasOrderPopup }: {
   token: string; onExpired: () => void; agenda: boolean; setAgenda: (open: boolean) => void;
+  checkinBlockNotice?: string;
+  hasOrderPopup?: boolean;
   offerOverlay?: React.ReactNode; onDismissOffer?: () => void;
 }) {
   const { primary, onPrimary, secondaryInk } = useAppTheme();
   const [online, setOnline] = useState<boolean>();
+  const [blockDeadline, setBlockDeadline] = useState<number | null>(null);
+  const [blockSeconds, setBlockSeconds] = useState(0);
+  const blocked = blockSeconds > 0;
+  const countdown = [
+    Math.floor(blockSeconds / 3600),
+    Math.floor(blockSeconds / 60) % 60,
+    blockSeconds % 60,
+  ].map((part) => String(part).padStart(2, '0')).join(':');
+  const [showMissed, setShowMissed] = useState(false);
+  const [missedOffers, setMissedOffers] = useState<MissedDriverOffer[]>();
+  const [missedError, setMissedError] = useState(false);
+  const [missedRevision, setMissedRevision] = useState(0);
   const [shifts, setShifts] = useState<DriverShift[]>([]);
   const [weeklyShifts, setWeeklyShifts] = useState<DriverWeeklyShift[]>([]);
   const [starts, setStarts] = useState('');
@@ -143,6 +158,15 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
     locationAttempt.current = null;
   }, [token]);
 
+  function syncBlock({ blockedUntil, serverNow }: DriverPresence) {
+    const now = Date.now();
+    const serverTime = Date.parse(serverNow ?? '');
+    const remaining = Date.parse(blockedUntil ?? '') - (Number.isFinite(serverTime) ? serverTime : now);
+    const active = Number.isFinite(remaining) && remaining > 0;
+    setBlockDeadline(active ? now + remaining : null);
+    setBlockSeconds(active ? Math.ceil(remaining / 1000) : 0);
+  }
+
   function report(err: unknown) {
     if (err instanceof ApiError && (err.status === 401 || err.status === 403)) onExpired();
     else setError(err instanceof Error ? err.message : 'Não foi possível atualizar a disponibilidade.');
@@ -150,16 +174,58 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
 
   useEffect(() => {
     const controller = new AbortController();
-    void getDriverDispatch(token, controller.signal).then((data) => {
-      if (!controller.signal.aborted) { setOnline(data.online); setShifts(data.shifts); setWeeklyShifts(data.weeklyShifts ?? []); }
-    }).catch((err) => {
-      if (!controller.signal.aborted) {
-        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) onExpired();
-        else setError('Não foi possível consultar a disponibilidade.');
+    function refreshPresence() {
+      void getDriverDispatch(token, controller.signal).then((data) => {
+        if (!controller.signal.aborted) { setOnline(data.online); syncBlock(data); setShifts(data.shifts); setWeeklyShifts(data.weeklyShifts ?? []); }
+      }).catch((err) => {
+        if (!controller.signal.aborted) {
+          if (err instanceof ApiError && (err.status === 401 || err.status === 403)) onExpired();
+          else setError('Não foi possível consultar a disponibilidade.');
+        }
+      });
+    }
+    refreshPresence();
+    const listener = AppState.addEventListener('change', (state) => { if (state === 'active') refreshPresence(); });
+    return () => { controller.abort(); listener.remove(); };
+  }, [token, onExpired, checkinBlockNotice]);
+
+  useEffect(() => {
+    if (blockDeadline === null) return;
+    function tick() {
+      const seconds = Math.max(0, Math.ceil((blockDeadline! - Date.now()) / 1000));
+      setBlockSeconds(seconds);
+      if (seconds === 0) setBlockDeadline(null);
+    }
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [blockDeadline]);
+
+  useEffect(() => {
+    if (hasOrderPopup) setShowMissed(false);
+  }, [hasOrderPopup]);
+
+  useEffect(() => {
+    if (!showMissed) return;
+    const controller = new AbortController();
+    async function refresh() {
+      try {
+        const data = await getDriverDispatch(token, controller.signal);
+        if (!controller.signal.aborted) {
+          setMissedOffers(data.missedOffers ?? []);
+          setMissedError(false);
+        }
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (err instanceof ApiError && err.status === 401) onExpired();
+        else setMissedError(true);
       }
-    });
-    return () => controller.abort();
-  }, [token, onExpired]);
+    }
+    setMissedOffers(undefined);
+    setMissedError(false);
+    void refresh();
+    const timer = setInterval(() => void refresh(), 30000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [showMissed, missedRevision, token, onExpired, checkinBlockNotice]);
 
   useEffect(() => {
     if (online === undefined) return;
@@ -184,7 +250,10 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
         const point = await position(false);
         if (active && !sending.current) {
           const presence = await setDriverPresence(token, 'location', point);
-          if (active && !sending.current) setOnline(presence.online);
+          if (active && !sending.current) {
+            setOnline(presence.online);
+            syncBlock(presence);
+          }
         }
       } catch (err) {
         if (active && err instanceof ApiError && (err.status === 401 || err.status === 403)) onExpired();
@@ -221,7 +290,10 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
       await requestDriverBackgroundPermission().catch(() => undefined);
       if (signal.aborted) return;
       const presence = await setDriverPresence(token, 'checkin', point, signal);
-      if (!signal.aborted) setOnline(presence.online);
+      if (!signal.aborted) {
+        setOnline(presence.online);
+        syncBlock(presence);
+      }
     });
   }
 
@@ -316,10 +388,36 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
     <View style={styles.controls}>
       <Text style={{ color: secondaryInk }}>{online ? 'Check-in ativo' : online === false ? 'Indisponível para entregas imediatas' : 'Disponibilidade a consultar'}</Text>
       <View style={styles.row}>
-        {button(waitingForGps ? 'Aguardando GPS…' : busy ? 'Aguarde…' : online ? 'Fazer check-out' : 'Fazer check-in',
-          () => void apply(updateCheckIn), !online)}
+        {button(blocked ? 'Check-in bloqueado' : waitingForGps ? 'Aguardando GPS…' : busy ? 'Aguarde…' : online ? 'Fazer check-out' : 'Fazer check-in',
+          () => void apply(updateCheckIn), !online, busy || blocked)}
         {button('Agenda', () => { setError(''); setAgenda(true); })}
+        {button('Sem resposta', () => setShowMissed(true))}
       </View>
+      {blocked && <View>
+        <Text accessibilityRole="alert" style={styles.error}>Check-out automático por não responder a 3 pedidos.</Text>
+        <Text style={[styles.title, { color: secondaryInk }]}>Tempo restante: {countdown}</Text>
+      </View>}
+      <Modal visible={showMissed} animationType="slide" onRequestClose={() => setShowMissed(false)}>
+        <SafeAreaView style={styles.screen}>
+          <ScrollView contentContainerStyle={styles.agenda}>
+            <View style={styles.row}>
+              <Text accessibilityRole="header" style={[styles.title, { color: secondaryInk }]}>Pedidos sem resposta</Text>
+              {button('Fechar', () => setShowMissed(false), false, false)}
+            </View>
+            {missedError ? <>
+              <Text accessibilityRole="alert" style={styles.error}>Não foi possível carregar o histórico.</Text>
+              {button('Tentar novamente', () => setMissedRevision((value) => value + 1), false, false)}
+            </> : missedOffers === undefined ? <Text style={{ color: secondaryInk }}>Carregando…</Text>
+              : missedOffers.length === 0 ? <Text style={{ color: secondaryInk }}>Nenhum pedido sem resposta registrado.</Text>
+              : missedOffers.map((offer) => (
+                <View key={offer.id}>
+                  <Text style={[styles.title, { color: secondaryInk }]}>Pedido #{offer.order_number || offer.order_id.slice(0, 8).toUpperCase()}</Text>
+                  <Text style={{ color: secondaryInk }}>Sem resposta em {new Date(offer.missed_at).toLocaleString('pt-BR')}</Text>
+                </View>
+              ))}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
       {!agenda && gpsPrompt}
       {!agenda && online && trackingError && (
         <>

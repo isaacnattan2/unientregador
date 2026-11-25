@@ -15,6 +15,7 @@ const appId = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID?.trim() || appConfig.expo
 export function useDriverPush(token: string | undefined, restoring: boolean) {
   const [destination, setDestination] = useState<PushDestination | null>(null);
   const [cancellations, setCancellations] = useState<OrderCancellationNotice[]>([]);
+  const [checkinBlockNotice, setCheckinBlockNotice] = useState<string>();
   const [updateNotice, setUpdateNotice] = useState<string>();
   const permissionRequested = useRef(false);
 
@@ -27,6 +28,7 @@ export function useDriverPush(token: string | undefined, restoring: boolean) {
       setDestination(null);
       setCancellations([]);
       setUpdateNotice(undefined);
+      setCheckinBlockNotice(undefined);
     }
 
     void import('react-native-onesignal').then(async ({ LogLevel, OneSignal }) => {
@@ -58,16 +60,21 @@ export function useDriverPush(token: string | undefined, restoring: boolean) {
         }
         return true;
       }
+      function handleCheckinBlock(id: string, data: DriverPushData | undefined) {
+        if (data?.event !== 'driver_checkin_blocked') return false;
+        setCheckinBlockNotice(id);
+        return true;
+      }
       const onClick = ({ notification }: NotificationClickEvent) => {
         const data = notification.additionalData as DriverPushData | undefined;
-        if (handleUpdateNotice(notification.notificationId, data)) return;
+        if (handleCheckinBlock(notification.notificationId, data) || handleUpdateNotice(notification.notificationId, data)) return;
         if (queueCancellation(notification.notificationId, data)) return;
         if (data?.section === 'available' || data?.section === 'accepted') setDestination({ section: data.section, offerId: data.offerId });
       };
       const onForeground = (event: NotificationWillDisplayEvent) => {
         const notification = event.getNotification();
         const data = notification.additionalData as DriverPushData | undefined;
-        if (handleUpdateNotice(notification.notificationId, data)) {
+        if (handleCheckinBlock(notification.notificationId, data) || handleUpdateNotice(notification.notificationId, data)) {
           event.preventDefault();
           return;
         }
@@ -113,6 +120,7 @@ export function useDriverPush(token: string | undefined, restoring: boolean) {
   return {
     destination,
     updateNotice,
+    checkinBlockNotice,
     cancellation: cancellations[0],
     acknowledgeCancellation: (id: string) => setCancellations((current) => current.filter((notice) => notice.id !== id)),
   };

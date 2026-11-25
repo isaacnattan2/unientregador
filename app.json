@@ -4,6 +4,7 @@
     "slug": "unientregador",
     "owner": "uniapp1",
     "version": "1.0.2",
+    "icon": "./assets/unientregador-icon.png",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -20,13 +21,17 @@
     },
     "android": {
       "package": "br.com.uniweb.unientregador",
-      "versionCode": 3
+      "versionCode": 4,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/unientregador-icon.png",
+        "backgroundColor": "#155BC7"
+      }
     },
     "plugins": [
       "expo-secure-store"
     ],
     "extra": {
-      "displayVersion": "1.0.7",
+      "displayVersion": "1.0.9",
       "oneSignalAppId": "2b55ab82-9b7f-4bab-9b74-c2736a7d8cf7",
       "eas": {
         "projectId": "bc0e468e-ad54-429c-a1b2-3295d573b1ef"

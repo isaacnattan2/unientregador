@@ -203,11 +203,13 @@ export async function cancelDelivery(token: string, orderId: string, signal: Abo
   });
 }
 
+export interface MissedDriverOffer { id: string; order_id: string; order_number: string | null; missed_at: string }
+export interface DriverPresence { online: boolean; blockedUntil?: string | null; serverNow?: string }
 export interface DriverShift { id: string; starts_at: string; ends_at: string }
 export interface DriverWeeklyShift { id: string; days: number[]; start_time: string; end_time: string; time_zone: string }
 export async function getDriverDispatch(token: string, signal?: AbortSignal) {
-  return await request('/auth/me/driver/dispatch', { signal, headers: { Authorization: 'Bearer ' + token } }) as {
-    online: boolean; shifts: DriverShift[]; weeklyShifts?: DriverWeeklyShift[];
+  return await request('/auth/me/driver/dispatch', { signal, headers: { Authorization: 'Bearer ' + token } }) as DriverPresence & {
+    shifts: DriverShift[]; weeklyShifts?: DriverWeeklyShift[]; missedOffers?: MissedDriverOffer[];
   };
 }
 
@@ -219,7 +221,7 @@ async function dispatchRequest(token: string, path: string, method: string, body
 }
 
 export async function setDriverPresence(token: string, action: 'checkin' | 'checkout' | 'location', point?: Coordinates, signal?: AbortSignal) {
-  return await dispatchRequest(token, '/auth/me/driver/presence', 'PUT', { action, ...point }, signal) as { online: boolean };
+  return await dispatchRequest(token, '/auth/me/driver/presence', 'PUT', { action, ...point }, signal) as DriverPresence;
 }
 
 export async function addDriverShift(token: string, startsAt: string, endsAt: string, point: Coordinates, signal?: AbortSignal) {

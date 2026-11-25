@@ -200,9 +200,10 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
   );
 }
 
-function Deliveries({ session, onExpired, onLogout, pushDestination, cancellation, onAcknowledgeCancellation, updates }: {
+function Deliveries({ session, onExpired, onLogout, pushDestination, cancellation, onAcknowledgeCancellation, updates, checkinBlockNotice }: {
   session: DriverSession; onExpired: () => void; onLogout: () => Promise<void>;
   pushDestination: PushDestination | null;
+  checkinBlockNotice?: string;
   cancellation?: OrderCancellationNotice;
   onAcknowledgeCancellation: (id: string) => void;
   updates: AppUpdates;
@@ -458,10 +459,10 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
           disabled={signingOut || submission !== null} onPress={() => void signOut()} />
       </View>
       <View style={styles.profileActions}>
-        <Button label="Meu perfil3" secondary style={styles.feedAction} disabled={signingOut || submission !== null}
+        <Button label="Meu perfil" secondary style={styles.feedAction} disabled={signingOut || submission !== null}
           onPress={() => setProfileOpen(true)} />
       </View>
-      <DriverDispatchControls token={token} onExpired={onExpired} agenda={agendaOpen} setAgenda={setAgendaOpen}
+      <DriverDispatchControls hasOrderPopup={!!popup} checkinBlockNotice={checkinBlockNotice} token={token} onExpired={onExpired} agenda={agendaOpen} setAgenda={setAgendaOpen}
         offerOverlay={agendaOpen ? popup : undefined} onDismissOffer={agendaOpen ? dismissPopup : undefined} />
       <View accessibilityRole="tablist" style={styles.deliveryTabs}>
         {(['available', 'accepted'] as const).map((target) => (
@@ -541,7 +542,7 @@ function AppContent() {
   const [session, setSession] = useState<DriverSession | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [notice, setNotice] = useState('');
-  const { destination: pushDestination, cancellation, acknowledgeCancellation, updateNotice } = useDriverPush(session?.token, restoring);
+  const { destination: pushDestination, cancellation, acknowledgeCancellation, updateNotice, checkinBlockNotice } = useDriverPush(session?.token, restoring);
   const updates = useAppUpdates(!restoring && !cancellation, updateNotice);
 
   useEffect(() => {
@@ -585,7 +586,7 @@ function AppContent() {
         <StatusBar barStyle="dark-content" />
         {restoring ? <View style={styles.center}><ActivityIndicator size="large" color={primary} /><Text style={styles.description}>Restaurando sessão…</Text></View> :
           session ? <Deliveries key={session.token} session={session} onExpired={expire} onLogout={logout} pushDestination={pushDestination}
-            cancellation={cancellation} onAcknowledgeCancellation={acknowledgeCancellation} updates={updates} /> :
+            checkinBlockNotice={checkinBlockNotice} cancellation={cancellation} onAcknowledgeCancellation={acknowledgeCancellation} updates={updates} /> :
             <Login onLogin={remember} notice={notice} />}
       </SafeAreaView>
     </SafeAreaProvider>
