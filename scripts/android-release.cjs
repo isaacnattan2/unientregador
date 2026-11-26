@@ -15,13 +15,17 @@ function runRelease(projectPath) {
     copyFileSync(firebaseConfig, path.join(androidApp, 'google-services.json'));
   }
   const env = { ...process.env };
-  const localEnv = path.join(projectPath, '.env.local');
-  if (!env.SENTRY_AUTH_TOKEN && existsSync(localEnv)) {
-    env.SENTRY_AUTH_TOKEN = parseEnv(readFileSync(localEnv, 'utf8')).SENTRY_AUTH_TOKEN;
+  let sentryAuthToken = env.SENTRY_AUTH_TOKEN?.trim();
+  for (const filename of ['.env.local', '.env']) {
+    if (sentryAuthToken) break;
+    const file = path.join(projectPath, filename);
+    if (existsSync(file)) sentryAuthToken = parseEnv(readFileSync(file, 'utf8')).SENTRY_AUTH_TOKEN?.trim();
   }
-  if (!env.SENTRY_AUTH_TOKEN?.trim()) {
+  if (sentryAuthToken) {
+    env.SENTRY_AUTH_TOKEN = sentryAuthToken;
+  } else {
     env.SENTRY_DISABLE_AUTO_UPLOAD = 'true';
-    console.warn('SENTRY_AUTH_TOKEN ausente. O APK sera gerado com o Sentry ativo, sem upload de source maps.');
+    console.warn('SENTRY_AUTH_TOKEN ausente. Configure-o em unientregador/.env.local para enviar os source maps. A publicação do APK pode continuar.');
   }
   if (windows && !env.ANDROID_HOME && !env.ANDROID_SDK_ROOT && env.LOCALAPPDATA) {
     const sdk = path.join(env.LOCALAPPDATA, 'Android', 'Sdk');

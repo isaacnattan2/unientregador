@@ -55,6 +55,8 @@ Se precisar validar a compatibilidade com um APK distribuído antes deste catál
 
 O comando gera o APK no canal `production`, com a API pública do UniWeb (substituível por `DRIVER_APP_RELEASE_API_URL`). Ele atualiza o link no banco após validar a assinatura e confirmar que o arquivo está acessível sem credenciais. Depois de trocar o link, o comando remove APKs anteriores no prefixo `driver-app/` do bucket configurado. Se a limpeza falhar, execute `npm run publishapp` com o mesmo `versionCode` para concluir a limpeza sem recompilar. O botão **Baixar aplicativo** mostra a nova versão na próxima carga do painel. Use o fluxo abaixo para atualizações OTA.
 
+Para enviar os source maps ao Sentry no `publishapp`, configure `SENTRY_AUTH_TOKEN` em `.env.local` na raiz do UniEntregador. O build também aceita a variável do terminal ou um token no `.env` do app. O `app.json` contém o DSN público usado em execução. Guarde o token de upload fora do Git.
+
 O projeto EAS `@uniapp1/unientregador` usa o canal `preview` para testes e `production` para distribuição. Os builds Android locais usam `preview` por padrão. O perfil `production` no EAS gera um APK no canal de produção.
 
 Para publicar JavaScript e imagens compatíveis com o APK de teste, execute na raiz do app:
