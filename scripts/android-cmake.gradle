@@ -10,12 +10,13 @@ subprojects { module ->
         }
     }
 
-    if (module.name in ['app', 'expo-updates']) {
+    if (module.name in ['app', 'expo-updates', 'sentry_react-native']) {
         def plugin = module.name == 'app' ? 'com.android.application' : 'com.android.library'
         module.pluginManager.withPlugin(plugin) {
             module.extensions.getByName('androidComponents').finalizeDsl { android ->
                 def projectId = Integer.toHexString(rootProject.projectDir.absolutePath.hashCode())
-                def folder = module.name == 'app' ? "uni-cmake-${projectId}" : "uni-updates-${projectId}"
+                def prefix = [app: 'cmake', 'expo-updates': 'updates', 'sentry_react-native': 'sentry'][module.name]
+                def folder = "uni-${prefix}-${projectId}"
                 def staging = new File(System.getProperty('java.io.tmpdir'), folder)
                 android.externalNativeBuild.cmake.buildStagingDirectory(staging)
                 android.defaultConfig.externalNativeBuild.cmake.arguments('-DCMAKE_OBJECT_PATH_MAX=250')

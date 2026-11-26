@@ -7,6 +7,7 @@ const { build } = require('../eas.json');
 
 const root = path.resolve(__dirname, '..');
 const channel = build.preview.channel;
+const bundleDirectory = '.expo/eas-preview';
 
 function readEnv(file) {
   try {
@@ -61,13 +62,26 @@ async function main() {
   const publish = spawnSync(process.execPath, [
     process.env.npm_execpath, 'exec', '--yes', '--package=eas-cli@latest', '--', 'eas', 'update',
     '--platform', 'android', '--channel', channel, '--environment', 'preview',
-    '--input-dir', '.expo/eas-preview', '--message', 'Nova versao Android do UniEntregador', '--non-interactive',
+    '--input-dir', bundleDirectory, '--message', 'Nova versao Android do UniEntregador', '--non-interactive',
   ], { cwd: root, stdio: 'inherit', env });
 
   if (publish.status !== 0) {
     console.error('O EAS não concluiu a publicação. Nenhum aviso foi enviado.');
     process.exitCode = publish.status ?? 1;
     return;
+  }
+
+  const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN ?? readEnv(path.join(root, '.env.local')).SENTRY_AUTH_TOKEN;
+  if (sentryAuthToken) {
+    const upload = spawnSync(process.execPath, [process.env.npm_execpath, 'exec', '--',
+      'sentry-expo-upload-sourcemaps', bundleDirectory,
+    ], { cwd: root, stdio: 'inherit', env: { ...env, SENTRY_AUTH_TOKEN: sentryAuthToken,
+      SENTRY_ORG: 'bitcrawler-20', SENTRY_PROJECT: 'unientregador' } });
+    if (upload.status !== 0) {
+      console.warn('A OTA foi publicada, mas o envio dos source maps ao Sentry falhou.');
+    }
+  } else {
+    console.warn('Source maps do Sentry ignorados. Configure SENTRY_AUTH_TOKEN em .env.local.');
   }
 
   if (process.argv.includes('--skip-push')) return;

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar,
+  ActivityIndicator, Alert, AppState, BackHandler, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar,
   StyleSheet, Switch, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -215,7 +215,9 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
   const { primary } = useAppTheme();
   const { token, name } = session;
   const [driverName, setDriverName] = useState(name);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [accountScreen, setAccountScreen] = useState<'profile' | 'rate' | null>(null);
+  const accountOpen = accountScreen !== null;
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [onlyMissed, setOnlyMissed] = useState(false);
   const onlyMissedRef = useRef(false);
@@ -445,119 +447,173 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
     }
   }
 
-  const dismissIncoming = incoming ? () => {
-    if (!actionRequest.current && !signingOut) closeOffer(incoming.offer);
-  } : undefined;
   const offerPopup = incoming && <IncomingDeliveryOffer key={incoming.offer.offerId} offer={incoming.offer} deadline={incoming.deadline}
-    embedded={agendaOpen || profileOpen}
+    embedded={false}
     busy={submission !== null || signingOut} error={actionError?.id === incoming.offer.orderId ? actionError.message : ''}
     onAccept={() => void submitDelivery(incoming.offer, { kind: 'accept' })}
     onDecline={() => void submitDelivery(incoming.offer, { kind: 'decline' })}
     onClose={() => closeOffer(incoming.offer)} />;
   const popup = cancellation ? <OrderCancellationPopup key={cancellation.id} orderId={cancellation.orderId}
-    embedded={agendaOpen || profileOpen} onAcknowledge={() => onAcknowledgeCancellation(cancellation.id)} /> : offerPopup;
-  const dismissPopup = cancellation ? () => {} : dismissIncoming;
+    embedded={false} onAcknowledge={() => onAcknowledgeCancellation(cancellation.id)} /> : offerPopup;
+  const hasPopup = Boolean(popup);
+  useEffect(() => { if (hasPopup) setMenuOpen(false); }, [hasPopup]);
+  useEffect(() => {
+    if ((!menuOpen && !agendaOpen) || Platform.OS !== 'android') return;
+    const listener = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (menuOpen) setMenuOpen(false);
+      else setAgendaOpen(false);
+      return true;
+    });
+    return () => listener.remove();
+  }, [menuOpen, agendaOpen]);
+
+  function runMenuAction(action: () => void) {
+    setMenuOpen(false);
+    action();
+  }
+
+  function openDeliverySection(target: DeliverySection) {
+    setAgendaOpen(false);
+    setAccountScreen(null);
+    if (target === section) return;
+    setActionError(null);
+    setActionNotice('');
+    void changeSection(target);
+  }
 
   return (
     <View style={styles.fill}>
-      <View style={styles.feedHeader}>
-        <View style={styles.feedIdentity}>
-          <Text style={[styles.brand, styles.feedBrand]}>UniEntregador</Text>
-          {!!driverName && <Text style={styles.feedDriverName} numberOfLines={2}>{driverName}</Text>}
-          <Text style={styles.feedVersion}>Versão {appVersion}{activeUpdate ? ` · Atualização ${activeUpdate}` : ''}</Text>
-        </View>
-        <Button label={signingOut ? 'Saindo…' : 'Sair'} secondary style={styles.feedAction}
-          disabled={signingOut || submission !== null} onPress={() => void signOut()} />
-      </View>
-      <View style={styles.profileActions}>
-        <Button label="Meu perfil" secondary style={styles.feedAction} disabled={signingOut || submission !== null}
-          onPress={() => setProfileOpen(true)} />
-      </View>
-      <DriverDispatchControls checkinBlockNotice={checkinBlockNotice} token={token} onExpired={onExpired} agenda={agendaOpen} setAgenda={setAgendaOpen}
-        offerOverlay={agendaOpen ? popup : undefined} onDismissOffer={agendaOpen ? dismissPopup : undefined} />
-      <View accessibilityRole="tablist" style={styles.deliveryTabs}>
-        {(['available', 'accepted'] as const).map((target) => (
-          <Pressable key={target} accessibilityRole="tab" accessibilityState={{ selected: section === target, disabled: submission !== null }}
-            style={[styles.deliveryTab, section === target && styles.selectedTab]}
-            disabled={submission !== null || section === target} onPress={() => {
-              setActionError(null);
-              setActionNotice('');
-              void changeSection(target);
-            }}>
-            <Text style={[styles.deliveryTabLabel, section === target && styles.selectedTabLabel]}>
-              {target === 'available' ? 'Disponíveis' : 'Minhas entregas'}
-            </Text>
+      <View style={styles.fill} accessibilityElementsHidden={menuOpen}
+        importantForAccessibility={menuOpen ? 'no-hide-descendants' : 'auto'}>
+        <View style={[styles.feedBar, styles.feedHeader]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Abrir menu" accessibilityState={{ expanded: menuOpen }}
+            onPress={() => setMenuOpen(true)} style={styles.drawerToggle}>
+            <Text style={styles.drawerToggleIcon} accessible={false}>☰</Text>
           </Pressable>
-        ))}
-      </View>
-      <FlatList data={items} keyboardShouldPersistTaps="handled" keyExtractor={deliveryKey} renderItem={({ item }) => item.status === 'missed' ? (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle} accessibilityRole="header">Pedido #{formatOrderCode(item.orderId)}</Text>
-          <Text style={styles.description}>{item.pickup.storeName}</Text>
-          <Text style={styles.description}>Sem resposta{item.missedAt ? ' em ' + new Date(item.missedAt).toLocaleString('pt-BR') : ''}</Text>
+          <Text style={[styles.brand, styles.feedBrand]}>UniEntregador</Text>
         </View>
-      ) : (
-        <DeliveryCard delivery={item} submitting={submission?.id === item.orderId ? submission.kind : undefined}
-          disabled={submission !== null || signingOut}
-          actionError={actionError?.id === item.orderId ? actionError.message : ''}
-          onNavigate={() => setMapOrderId(item.orderId)}
-          map={mapOrderId === item.orderId && item.status === 'in_progress' ? (
-            <DeliveryNavigation delivery={item} token={token} onEnded={closeNavigation} onStop={closeNavigation} />
-          ) : undefined}
-          onSubmit={(action) => void submitDelivery(item, action)} />
-      )}
-        contentContainerStyle={styles.feedList}
-        ListHeaderComponent={
-          <View>
-            <Text style={styles.feedTitle} accessibilityRole="header">
-              {section === 'available' ? 'Entregas disponíveis' : 'Minhas entregas'}
-            </Text>
-            {section === 'accepted' && (
-              <View style={styles.missedOffersFilter}>
-                <Text style={styles.description}>Somente sem resposta</Text>
-                <Switch accessibilityLabel="Somente sem resposta" value={onlyMissed}
-                  disabled={submission !== null} onValueChange={(value) => {
-                    onlyMissedRef.current = value;
-                    setOnlyMissed(value);
-                    setItems([]);
-                    setNextOffset(null);
-                    void load('accepted', 0, 'initial');
-                  }} />
-              </View>
-            )}
-            {!!actionNotice && <Text accessibilityLiveRegion="polite" style={styles.description}>{actionNotice}</Text>}
-            {actionError && !items.some((item) => item.status !== 'missed' && item.orderId === actionError.id) &&
-              <Text accessibilityRole="alert" style={styles.error}>{actionError.message}</Text>}
+        <DriverDispatchControls checkinBlockNotice={checkinBlockNotice} token={token} onExpired={onExpired} agenda={agendaOpen}
+          showCheckin={!accountOpen} />
+        {!agendaOpen && !accountOpen && <FlatList style={styles.fill} data={items} keyboardShouldPersistTaps="handled" keyExtractor={deliveryKey} renderItem={({ item }) => item.status === 'missed' ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle} accessibilityRole="header">Pedido #{formatOrderCode(item.orderId)}</Text>
+            <Text style={styles.description}>{item.pickup.storeName}</Text>
+            <Text style={styles.description}>Sem resposta{item.missedAt ? ' em ' + new Date(item.missedAt).toLocaleString('pt-BR') : ''}</Text>
           </View>
-        }
-        refreshing={pending === 'refresh'} onRefresh={() => { void refreshOffer(true); void load(section, 0, 'refresh'); }}
-        ListEmptyComponent={pending ? (
-          <View style={styles.empty}><ActivityIndicator color={primary} /><Text style={styles.description}>Buscando entregas…</Text></View>
-        ) : !error ? (
-          <View style={styles.empty}><Text style={styles.cardTitle}>
-            {section === 'available' ? 'Nenhuma entrega disponível' : onlyMissed ? 'Nenhum pedido sem resposta' : 'Nenhuma entrega no histórico'}
-          </Text>
-            <Text style={styles.description}>Puxe para baixo para atualizar a lista.</Text></View>
-        ) : undefined}
-        ListFooterComponent={<>
-          {error ? (
-            <View style={styles.footer}><Text accessibilityRole="alert" style={styles.error}>{error}</Text>
-              <Button label="Tentar novamente" secondary onPress={() => void load(section, 0, 'refresh')} /></View>
-          ) : nextOffset !== null && (
-            <View style={styles.footer}><Button label={pending === 'more' ? 'Carregando…' : 'Ver mais entregas'} secondary
-              disabled={pending !== null || submission !== null} onPress={() => void load(section, nextOffset, 'more')} /></View>
-          )}
-        </>} />
-      {profileOpen && <DriverProfileScreen token={token} onExpired={onExpired}
-        offerOverlay={popup} onDismissOffer={dismissPopup} updates={updates}
-        onClose={() => setProfileOpen(false)}
-        onRateSaved={() => { if (section === 'available') void load('available', 0, 'refresh'); }}
-        onSaved={(fullName) => {
-          setDriverName(fullName);
-          setProfileOpen(false);
-          setActionNotice('Perfil atualizado.');
-        }} />}
-      {!agendaOpen && !profileOpen && popup}
+        ) : (
+          <DeliveryCard delivery={item} submitting={submission?.id === item.orderId ? submission.kind : undefined}
+            disabled={submission !== null || signingOut}
+            actionError={actionError?.id === item.orderId ? actionError.message : ''}
+            onNavigate={() => setMapOrderId(item.orderId)}
+            map={mapOrderId === item.orderId && item.status === 'in_progress' ? (
+              <DeliveryNavigation delivery={item} token={token} onEnded={closeNavigation} onStop={closeNavigation} />
+            ) : undefined}
+            onSubmit={(action) => void submitDelivery(item, action)} />
+        )}
+          contentContainerStyle={styles.feedList}
+          ListHeaderComponent={
+            <View>
+              <Text style={styles.feedTitle} accessibilityRole="header">
+                {section === 'available' ? 'Entregas disponíveis' : 'Minhas entregas'}
+              </Text>
+              {section === 'accepted' && (
+                <View style={styles.missedOffersFilter}>
+                  <Text style={styles.description}>Somente sem resposta</Text>
+                  <Switch accessibilityLabel="Somente sem resposta" value={onlyMissed}
+                    disabled={submission !== null} onValueChange={(value) => {
+                      onlyMissedRef.current = value;
+                      setOnlyMissed(value);
+                      setItems([]);
+                      setNextOffset(null);
+                      void load('accepted', 0, 'initial');
+                    }} />
+                </View>
+              )}
+              {!!actionNotice && <Text accessibilityLiveRegion="polite" style={styles.description}>{actionNotice}</Text>}
+              {actionError && !items.some((item) => item.status !== 'missed' && item.orderId === actionError.id) &&
+                <Text accessibilityRole="alert" style={styles.error}>{actionError.message}</Text>}
+            </View>
+          }
+          refreshing={pending === 'refresh'} onRefresh={() => { void refreshOffer(true); void load(section, 0, 'refresh'); }}
+          ListEmptyComponent={pending ? (
+            <View style={styles.empty}><ActivityIndicator color={primary} /><Text style={styles.description}>Buscando entregas…</Text></View>
+          ) : !error ? (
+            <View style={styles.empty}><Text style={styles.cardTitle}>
+              {section === 'available' ? 'Nenhuma entrega disponível' : onlyMissed ? 'Nenhum pedido sem resposta' : 'Nenhuma entrega no histórico'}
+            </Text>
+              <Text style={styles.description}>Puxe para baixo para atualizar a lista.</Text></View>
+          ) : undefined}
+          ListFooterComponent={<>
+            {error ? (
+              <View style={styles.footer}><Text accessibilityRole="alert" style={styles.error}>{error}</Text>
+                <Button label="Tentar novamente" secondary onPress={() => void load(section, 0, 'refresh')} /></View>
+            ) : nextOffset !== null && (
+              <View style={styles.footer}><Button label={pending === 'more' ? 'Carregando…' : 'Ver mais entregas'} secondary
+                disabled={pending !== null || submission !== null} onPress={() => void load(section, nextOffset, 'more')} /></View>
+            )}
+          </>} />}
+        {accountScreen && <DriverProfileScreen key={accountScreen} section={accountScreen} token={token} onExpired={onExpired}
+          updates={updates} menuOpen={menuOpen}
+          onClose={() => setAccountScreen(null)}
+          onRateSaved={() => { if (section === 'available') void load('available', 0, 'refresh'); }}
+          onSaved={(fullName) => {
+            setDriverName(fullName);
+            setAccountScreen(null);
+            setActionNotice('Perfil atualizado.');
+          }} />}
+        <View style={[styles.feedBar, styles.feedFooter]}>
+          {!!driverName && <Text style={styles.feedDriverName} numberOfLines={1}>{driverName}</Text>}
+          <Text style={styles.feedVersion} numberOfLines={2}>Versão {appVersion}{activeUpdate ? ' · Atualização ' + activeUpdate : ''}</Text>
+        </View>
+      </View>
+      {menuOpen && !hasPopup && (
+        <View style={styles.drawerOverlay} accessibilityViewIsModal onAccessibilityEscape={() => setMenuOpen(false)}>
+          <Pressable style={styles.drawerBackdrop} onPress={() => setMenuOpen(false)} accessible={false} />
+          <View style={styles.drawer}>
+            <View style={styles.drawerHeader}>
+              <Image source={require('./assets/unientregador-icon.png')} style={styles.drawerLogo} accessible={false} />
+              <Text style={styles.drawerTitle}>UniEntregador</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Fechar menu" onPress={() => setMenuOpen(false)}
+                style={styles.drawerToggle}><Text style={styles.drawerToggleIcon} accessible={false}>×</Text></Pressable>
+            </View>
+            <ScrollView style={styles.fill} contentContainerStyle={styles.drawerLinks}>
+              <Text style={styles.drawerGroup}>Entregas</Text>
+              {(['available', 'accepted'] as const).map((target) => (
+                <Pressable key={target} accessibilityRole="button" accessibilityState={{ selected: !agendaOpen && !accountOpen && section === target }}
+                  disabled={submission !== null || signingOut}
+                  onPress={() => runMenuAction(() => openDeliverySection(target))}
+                  style={[styles.drawerLink, !agendaOpen && !accountOpen && section === target && styles.drawerLinkSelected]}>
+                  <Text style={styles.drawerText}>{target === 'available' ? 'Entregas disponíveis' : 'Minhas entregas'}</Text>
+                </Pressable>
+              ))}
+              <Pressable accessibilityRole="button" disabled={submission !== null || signingOut}
+                accessibilityState={{ selected: agendaOpen }}
+                onPress={() => runMenuAction(() => { setAccountScreen(null); setAgendaOpen(true); })}
+                style={[styles.drawerLink, agendaOpen && styles.drawerLinkSelected]}>
+                <Text style={styles.drawerText}>Agenda</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" disabled={submission !== null || signingOut}
+                accessibilityState={{ selected: accountScreen === 'rate' }}
+                onPress={() => runMenuAction(() => { setAgendaOpen(false); setAccountScreen('rate'); })}
+                style={[styles.drawerLink, accountScreen === 'rate' && styles.drawerLinkSelected]}>
+                <Text style={styles.drawerText}>Taxa de entrega</Text>
+              </Pressable>
+              <Text style={styles.drawerGroup}>Conta</Text>
+              <Pressable accessibilityRole="button" disabled={submission !== null || signingOut}
+                accessibilityState={{ selected: accountScreen === 'profile' }}
+                onPress={() => runMenuAction(() => { setAgendaOpen(false); setAccountScreen('profile'); })}
+                style={[styles.drawerLink, accountScreen === 'profile' && styles.drawerLinkSelected]}>
+                <Text style={styles.drawerText}>Meu perfil</Text>
+              </Pressable>
+            </ScrollView>
+            <View style={styles.drawerFooter}>
+              <Button label={signingOut ? 'Saindo…' : 'Sair'} secondary style={styles.drawerSignOut}
+                disabled={signingOut || submission !== null} onPress={() => runMenuAction(() => void signOut())} />
+            </View>
+          </View>
+        </View>
+      )}
+      {popup}
     </View>
   );
 }
@@ -648,20 +704,30 @@ const createStyles = ({ primary, primaryInk, secondary, secondaryInk, onPrimary,
   pressed: { opacity: 0.8 },
   disabled: { opacity: 0.55 },
   error: { color: '#a0262f', marginTop: 12, fontSize: 14, lineHeight: 20 },
-  feedHeader: { paddingHorizontal: 18, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d9e4f0',
+  feedBar: { height: 56, flexShrink: 0, backgroundColor: '#fff' },
+  feedHeader: { paddingHorizontal: 16, justifyContent: 'flex-start', borderBottomWidth: 1, borderBottomColor: '#d9e4f0',
     backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', gap: 12 },
-  feedIdentity: { flex: 1, minWidth: 0, gap: 2 },
   feedBrand: { marginBottom: 0 },
-  feedDriverName: { color: muted, fontSize: 14 },
-  feedVersion: { color: muted, fontSize: 12 },
-  feedAction: { marginTop: 0 },
-  profileActions: { alignItems: 'flex-end', width: '100%', maxWidth: 780, alignSelf: 'center', paddingHorizontal: 16, paddingTop: 12 },
-  deliveryTabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, width: '100%', maxWidth: 780, alignSelf: 'center' },
+  feedDriverName: { color: muted, fontSize: 14, flex: 1 },
+  feedVersion: { color: muted, fontSize: 12, flexShrink: 1, maxWidth: '55%', marginLeft: 'auto', textAlign: 'right' },
+  feedFooter: { paddingHorizontal: 16, flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'space-between', gap: 4, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#d9e4f0' },
+  drawerToggle: { minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
+  drawerToggleIcon: { fontSize: 22, fontWeight: '700', color: secondaryInk },
+  drawerOverlay: { ...StyleSheet.absoluteFill, flexDirection: 'row', zIndex: 10 },
+  drawerBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(15, 23, 42, 0.45)' },
+  drawer: { width: '82%', maxWidth: 340, backgroundColor: '#fff', borderRightWidth: 1, borderRightColor: '#d9e4f0' },
+  drawerHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderBottomWidth: 1, borderBottomColor: '#d9e4f0' },
+  drawerLogo: { width: 36, height: 36, borderRadius: 8 },
+  drawerTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: secondaryInk },
+  drawerLinks: { padding: 12, gap: 4 },
+  drawerGroup: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 4, color: muted, fontWeight: '700', fontSize: 13 },
+  drawerLink: { minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, justifyContent: 'center', borderRadius: 8 },
+  drawerLinkSelected: { backgroundColor: '#eaf2ff' },
+  drawerText: { color: secondaryInk, fontWeight: '600', fontSize: 15 },
+  drawerFooter: { padding: 12, borderTopWidth: 1, borderTopColor: '#d9e4f0' },
+  drawerSignOut: { marginTop: 0 },
   missedOffersFilter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  deliveryTab: { flex: 1, minHeight: 44, justifyContent: 'center', borderRadius: 8, padding: 8, backgroundColor: '#fff' },
-  selectedTab: { backgroundColor: primary },
-  deliveryTabLabel: { textAlign: 'center', fontSize: 15, fontWeight: '700', color: secondaryInk },
-  selectedTabLabel: { color: onPrimary },
   orderSummary: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 },
   deliveryStatus: { fontSize: 13, fontWeight: '700', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
   available: { color: '#24456d', backgroundColor: '#eaf2ff' },

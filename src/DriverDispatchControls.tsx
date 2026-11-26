@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Location from 'expo-location';
 import type { DriverPresence } from './api';
 import { addDriverShift, addDriverWeeklyShift, ApiError, deleteDriverShift, deleteDriverWeeklyShift, getDriverDispatch, setDriverPresence } from './api';
@@ -118,10 +117,10 @@ function waitForGps(signal: AbortSignal): Promise<boolean> {
   });
 }
 
-export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, offerOverlay, onDismissOffer, checkinBlockNotice }: {
-  token: string; onExpired: () => void; agenda: boolean; setAgenda: (open: boolean) => void;
+export function DriverDispatchControls({ token, onExpired, agenda, showCheckin, checkinBlockNotice }: {
+  token: string; onExpired: () => void; agenda: boolean;
   checkinBlockNotice?: string;
-  offerOverlay?: React.ReactNode; onDismissOffer?: () => void;
+  showCheckin: boolean;
 }) {
   const { primary, onPrimary, secondaryInk } = useAppTheme();
   const [online, setOnline] = useState<boolean>();
@@ -352,20 +351,79 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
     </View>
   </>;
 
+  if (agenda) return (
+    <ScrollView style={styles.screen} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.agenda}>
+      <Text accessibilityRole="header" style={[styles.title, { color: secondaryInk }]}>Agenda de entregas</Text>
+      <Text>Cadastre os horários em que poderá receber ofertas. A localização atual será usada como ponto de partida do turno.</Text>
+      <View style={styles.row}>
+        {button('Horário semanal', () => { setMode('weekly'); setError(''); }, mode === 'weekly')}
+        {button('Data avulsa', () => { setMode('single'); setError(''); }, mode === 'single')}
+      </View>
+      {mode === 'weekly' ? <>
+        <View style={styles.row}>
+          {button('Dias úteis (seg a sex)', () => setDays(weekdays))}
+          {button('Todos os dias', () => setDays(week))}
+        </View>
+        <Text style={{ color: secondaryInk }}>Dias da semana</Text>
+        <View style={styles.row}>
+          {week.map((day) => {
+            const selected = days.includes(day);
+            return <Pressable key={day} accessibilityRole="checkbox" accessibilityState={{ checked: selected, disabled: busy }}
+              disabled={busy} style={[styles.day, { backgroundColor: selected ? primary : '#eaf2ff' }]}
+              onPress={() => setDays((current) => selected ? current.filter((value) => value !== day) : [...current, day].sort((a, b) => a - b))}>
+              <Text style={{ color: selected ? onPrimary : secondaryInk }}>{dayNames[day - 1]}</Text>
+            </Pressable>;
+          })}
+        </View>
+        <View style={styles.row}>
+          <TextInput accessibilityLabel="Início do horário semanal" placeholder="Início · HH:mm"
+            style={[styles.input, styles.timeInput]} value={weeklyStarts} onChangeText={setWeeklyStarts} maxLength={5} editable={!busy} />
+          <TextInput accessibilityLabel="Fim do horário semanal" placeholder="Fim · HH:mm"
+            style={[styles.input, styles.timeInput]} value={weeklyEnds} onChangeText={setWeeklyEnds} maxLength={5} editable={!busy} />
+        </View>
+      </> : <>
+        <TextInput accessibilityLabel="Início do turno" placeholder="Início · DD/MM/AAAA HH:mm"
+          style={styles.input} value={starts} onChangeText={setStarts} editable={!busy} />
+        <TextInput accessibilityLabel="Fim do turno" placeholder="Fim · DD/MM/AAAA HH:mm"
+          style={styles.input} value={ends} onChangeText={setEnds} editable={!busy} />
+      </>}
+      {button(mode === 'weekly' ? 'Adicionar horário semanal' : 'Adicionar data avulsa', () => void apply(saveShift), true)}
+      {gpsPrompt}
+      {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+      {!shifts.length && !weeklyShifts.length && <Text>Nenhum horário cadastrado.</Text>}
+      {weeklyShifts.length > 0 && <Text accessibilityRole="header" style={styles.sectionTitle}>Horários semanais</Text>}
+      {weeklyShifts.map((shift) => <View style={styles.shift} key={shift.id}>
+        <Text>{daysLabel(shift.days)} · {shift.start_time}–{shift.end_time}{shift.end_time < shift.start_time ? ' do dia seguinte' : ''}</Text>
+        {button('Excluir horário semanal', () => void apply(async () => {
+          await deleteDriverWeeklyShift(token, shift.id);
+          setWeeklyShifts((current) => current.filter((item) => item.id !== shift.id));
+        }))}
+      </View>)}
+      {shifts.length > 0 && <Text accessibilityRole="header" style={styles.sectionTitle}>Datas avulsas</Text>}
+      {shifts.map((shift) => <View style={styles.shift} key={shift.id}>
+        <Text>{dateTime.format(new Date(shift.starts_at))} até {dateTime.format(new Date(shift.ends_at))}</Text>
+        {button('Excluir horário', () => void apply(async () => {
+          await deleteDriverShift(token, shift.id);
+          setShifts((current) => current.filter((item) => item.id !== shift.id));
+        }))}
+      </View>)}
+    </ScrollView>
+  );
+
+  if (!showCheckin) return null;
   return (
     <View style={styles.controls}>
       <Text style={{ color: secondaryInk }}>{online ? 'Check-in ativo' : online === false ? 'Indisponível para entregas imediatas' : 'Disponibilidade a consultar'}</Text>
       <View style={styles.row}>
         {button(blocked ? 'Check-in bloqueado' : waitingForGps ? 'Aguardando GPS…' : busy ? 'Aguarde…' : online ? 'Fazer check-out' : 'Fazer check-in',
           () => void apply(updateCheckIn), !online, busy || blocked)}
-        {button('Agenda', () => { setError(''); setAgenda(true); })}
       </View>
       {blocked && <View>
         <Text accessibilityRole="alert" style={styles.error}>Check-out automático por não responder a 3 pedidos.</Text>
         <Text style={[styles.title, { color: secondaryInk }]}>Tempo restante: {countdown}</Text>
       </View>}
-      {!agenda && gpsPrompt}
-      {!agenda && online && trackingError && (
+      {gpsPrompt}
+      {online && trackingError && (
         <>
           <Text accessibilityRole="alert" style={styles.error}>{trackingError.message}</Text>
           {trackingError instanceof DriverLocationPermissionError && button('Abrir configurações', () => {
@@ -373,71 +431,7 @@ export function DriverDispatchControls({ token, onExpired, agenda, setAgenda, of
           })}
         </>
       )}
-      {!agenda && !!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-      <Modal visible={agenda} animationType="slide" onRequestClose={onDismissOffer ?? (() => { if (!busy) setAgenda(false); })}>
-        <SafeAreaView style={styles.screen}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.agenda}>
-            <View style={styles.row}>
-              <Text accessibilityRole="header" style={[styles.title, { color: secondaryInk }]}>Agenda de entregas</Text>
-              {button('Voltar', () => { setError(''); setAgenda(false); })}
-            </View>
-            <Text>Cadastre os horários em que poderá receber ofertas. A localização atual será usada como ponto de partida do turno.</Text>
-            <View style={styles.row}>
-              {button('Horário semanal', () => { setMode('weekly'); setError(''); }, mode === 'weekly')}
-              {button('Data avulsa', () => { setMode('single'); setError(''); }, mode === 'single')}
-            </View>
-            {mode === 'weekly' ? <>
-              <View style={styles.row}>
-                {button('Dias úteis (seg a sex)', () => setDays(weekdays))}
-                {button('Todos os dias', () => setDays(week))}
-              </View>
-              <Text style={{ color: secondaryInk }}>Dias da semana</Text>
-              <View style={styles.row}>
-                {week.map((day) => {
-                  const selected = days.includes(day);
-                  return <Pressable key={day} accessibilityRole="checkbox" accessibilityState={{ checked: selected, disabled: busy }}
-                    disabled={busy} style={[styles.day, { backgroundColor: selected ? primary : '#eaf2ff' }]}
-                    onPress={() => setDays((current) => selected ? current.filter((value) => value !== day) : [...current, day].sort((a, b) => a - b))}>
-                    <Text style={{ color: selected ? onPrimary : secondaryInk }}>{dayNames[day - 1]}</Text>
-                  </Pressable>;
-                })}
-              </View>
-              <View style={styles.row}>
-                <TextInput accessibilityLabel="Início do horário semanal" placeholder="Início · HH:mm"
-                  style={[styles.input, styles.timeInput]} value={weeklyStarts} onChangeText={setWeeklyStarts} maxLength={5} editable={!busy} />
-                <TextInput accessibilityLabel="Fim do horário semanal" placeholder="Fim · HH:mm"
-                  style={[styles.input, styles.timeInput]} value={weeklyEnds} onChangeText={setWeeklyEnds} maxLength={5} editable={!busy} />
-              </View>
-            </> : <>
-              <TextInput accessibilityLabel="Início do turno" placeholder="Início · DD/MM/AAAA HH:mm"
-                style={styles.input} value={starts} onChangeText={setStarts} editable={!busy} />
-              <TextInput accessibilityLabel="Fim do turno" placeholder="Fim · DD/MM/AAAA HH:mm"
-                style={styles.input} value={ends} onChangeText={setEnds} editable={!busy} />
-            </>}
-            {button(mode === 'weekly' ? 'Adicionar horário semanal' : 'Adicionar data avulsa', () => void apply(saveShift), true)}
-            {agenda && gpsPrompt}
-            {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-            {!shifts.length && !weeklyShifts.length && <Text>Nenhum horário cadastrado.</Text>}
-            {weeklyShifts.length > 0 && <Text accessibilityRole="header" style={styles.sectionTitle}>Horários semanais</Text>}
-            {weeklyShifts.map((shift) => <View style={styles.shift} key={shift.id}>
-              <Text>{daysLabel(shift.days)} · {shift.start_time}–{shift.end_time}{shift.end_time < shift.start_time ? ' do dia seguinte' : ''}</Text>
-              {button('Excluir horário semanal', () => void apply(async () => {
-                await deleteDriverWeeklyShift(token, shift.id);
-                setWeeklyShifts((current) => current.filter((item) => item.id !== shift.id));
-              }))}
-            </View>)}
-            {shifts.length > 0 && <Text accessibilityRole="header" style={styles.sectionTitle}>Datas avulsas</Text>}
-            {shifts.map((shift) => <View style={styles.shift} key={shift.id}>
-              <Text>{dateTime.format(new Date(shift.starts_at))} até {dateTime.format(new Date(shift.ends_at))}</Text>
-              {button('Excluir horário', () => void apply(async () => {
-                await deleteDriverShift(token, shift.id);
-                setShifts((current) => current.filter((item) => item.id !== shift.id));
-              }))}
-            </View>)}
-          </ScrollView>
-          {offerOverlay}
-        </SafeAreaView>
-      </Modal>
+      {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
     </View>
   );
 }

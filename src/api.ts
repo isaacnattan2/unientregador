@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { File } from 'expo-file-system';
 
 ﻿const apiUrl = (process.env.EXPO_PUBLIC_API_URL || 'https://uniweb-p7mz.onrender.com/api').replace(/\/+$/, '');
 
@@ -165,7 +166,15 @@ export async function uploadDriverLicensePhoto(token: string, photo: { uri: stri
     const image = await fetch(photo.uri).then((response) => response.blob());
     body.append('image', image, photo.fileName ?? 'cnh.jpg');
   } else {
-    body.append('image', { uri: photo.uri, name: photo.fileName ?? 'cnh.jpg', type: photo.mimeType ?? 'image/jpeg' } as unknown as Blob);
+    const file = new File(photo.uri);
+    if (!file.exists || !file.size) throw new Error('Não foi possível ler a foto. Selecione ou fotografe a CNH novamente.');
+    if (file.size > 5 * 1024 * 1024) throw new Error('Selecione uma foto de até 5 MB.');
+    const contentType = (photo.mimeType || file.type).toLowerCase();
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
+      throw new Error('Selecione uma foto JPEG, PNG ou WebP, ou use a câmera do app.');
+    }
+    if (file.type === contentType) body.append('image', file);
+    else body.append('image', file.slice(0, file.size, contentType), photo.fileName ?? 'cnh');
   }
   return await request('/auth/me/driver/license-photo', {
     method: 'PUT', body, headers: { Authorization: 'Bearer ' + token },
