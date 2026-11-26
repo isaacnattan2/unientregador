@@ -3,7 +3,6 @@ import { Alert, AppState, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Updates from 'expo-updates';
 
-const deferredKey = 'uni.updates.deferred';
 const pendingKey = 'uni.updates.pending';
 const embedded = 'embedded';
 const enabled = Platform.OS !== 'web' && Updates.isEnabled;
@@ -15,6 +14,7 @@ function manifestId(manifest: object): string {
 
 export function useAppUpdates(ready: boolean, pushNotice?: string) {
   const [phase, setPhase] = useState<'checking' | 'updating' | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
   const [available, setAvailable] = useState(false);
   const working = useRef(false);
   const prompted = useRef<string | undefined>(undefined);
@@ -63,13 +63,14 @@ export function useAppUpdates(ready: boolean, pushNotice?: string) {
       }
       const id = update.isRollBackToEmbedded ? `rollback:${Updates.updateId}` : manifestId(update.manifest);
       setAvailable(true);
-      if (!manual && (prompted.current === id || await SecureStore.getItemAsync(deferredKey).catch(() => null) === id)) return;
+      if (!manual && prompted.current === id) return;
       if (!manual && AppState.currentState !== 'active') return;
 
       prompted.current = id;
+      setPromptOpen(true);
       Alert.alert('Nova atualização disponível', 'Quer atualizar o UniEntregador agora? O app será reaberto ao concluir.', [
-        { text: 'Agora não', style: 'cancel', onPress: () => { void SecureStore.setItemAsync(deferredKey, id).catch(() => undefined); } },
-        { text: 'Atualizar', onPress: () => { void install(); } },
+        { text: 'Agora não', style: 'cancel', onPress: () => setPromptOpen(false) },
+        { text: 'Atualizar', onPress: () => { setPromptOpen(false); void install(); } },
       ], { cancelable: false });
     } catch {
       if (manual) Alert.alert('Não foi possível verificar atualizações', 'Confira a sua conexão e tente novamente.');
@@ -109,7 +110,7 @@ export function useAppUpdates(ready: boolean, pushNotice?: string) {
     if (ready && pushNotice && AppState.currentState === 'active') void check(false);
   }, [ready, pushNotice, check]);
 
-  return { available, phase, check };
+  return { available, phase, check, promptOpen };
 }
 
 export type AppUpdates = ReturnType<typeof useAppUpdates>;

@@ -17,6 +17,7 @@ export function useDriverPush(token: string | undefined, restoring: boolean) {
   const [cancellations, setCancellations] = useState<OrderCancellationNotice[]>([]);
   const [checkinBlockNotice, setCheckinBlockNotice] = useState<string>();
   const [updateNotice, setUpdateNotice] = useState<string>();
+  const [notificationSignal, setNotificationSignal] = useState(0);
   const permissionRequested = useRef(false);
 
   useEffect(() => {
@@ -66,15 +67,17 @@ export function useDriverPush(token: string | undefined, restoring: boolean) {
         return true;
       }
       const onClick = ({ notification }: NotificationClickEvent) => {
+        setNotificationSignal((value) => value + 1);
         const data = notification.additionalData as DriverPushData | undefined;
         if (handleCheckinBlock(notification.notificationId, data) || handleUpdateNotice(notification.notificationId, data)) return;
         if (queueCancellation(notification.notificationId, data)) return;
         if (data?.section === 'available' || data?.section === 'accepted') setDestination({ section: data.section, offerId: data.offerId });
       };
       const onForeground = (event: NotificationWillDisplayEvent) => {
+        setNotificationSignal((value) => value + 1);
         const notification = event.getNotification();
         const data = notification.additionalData as DriverPushData | undefined;
-        if (handleCheckinBlock(notification.notificationId, data) || handleUpdateNotice(notification.notificationId, data)) {
+        if (data?.event === 'android_apk_release' || handleCheckinBlock(notification.notificationId, data) || handleUpdateNotice(notification.notificationId, data)) {
           event.preventDefault();
           return;
         }
@@ -120,6 +123,7 @@ export function useDriverPush(token: string | undefined, restoring: boolean) {
   return {
     destination,
     updateNotice,
+    notificationSignal,
     checkinBlockNotice,
     cancellation: cancellations[0],
     acknowledgeCancellation: (id: string) => setCancellations((current) => current.filter((notice) => notice.id !== id)),

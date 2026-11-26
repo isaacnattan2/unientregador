@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, AppState, BackHandler, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar,
-  StyleSheet, Switch, Text, TextInput, View,
+  StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import * as Updates from 'expo-updates';
 import appConfig from './app.json';
 import { acceptDelivery, ApiError, cancelDelivery, confirmDelivery, deliveryMileage, formatOrderCode, getCurrentDriverOffer, getDeliveries, getDriverName, loginDriver, pickupDelivery, respondToDeliveryOffer, setDriverPresence } from './src/api';
-import type { Delivery, DriverSession } from './src/api';
+import type { DriverApkRelease, Delivery, DeliveryHistory, DriverNotification, DriverSession } from './src/api';
 import { DeliveryNavigation } from './src/DeliveryNavigation';
 import { DriverProfileScreen } from './src/DriverProfileScreen';
 import { DriverDispatchControls } from './src/DriverDispatchControls';
@@ -21,9 +21,18 @@ import type { OrderCancellationNotice, PushDestination } from './src/DriverPush'
 import { useAppUpdates } from './src/useAppUpdates';
 import type { AppUpdates } from './src/useAppUpdates';
 
+import { DriverNotificationPanel, useDriverNotifications } from './src/DriverNotifications';
+import { DriverApkUpdate } from './src/DriverApkUpdate';
+import type { DriverNotifications } from './src/DriverNotifications';
+
 import { sessionKey, sessionStorageOptions, stopDriverBackgroundLocation } from './src/DriverBackgroundLocation';
 type DeliverySection = 'available' | 'accepted';
-const deliveryKey = (item: Delivery) => item.missedOfferId ?? item.orderId;
+const deliveryKey = (item: Delivery) => item.declinedOfferId ?? item.missedOfferId ?? item.orderId;
+const deliveryHistoryFilters: { value: DeliveryHistory; label: string }[] = [
+  { value: 'all', label: 'Histórico' },
+  { value: 'missed', label: 'Sem resposta' },
+  { value: 'declined', label: 'Recusadas' },
+];
 const muted = '#4d617a';
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateTime = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -111,7 +120,7 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
   const [reason, setReason] = useState('');
   const [reporting, setReporting] = useState(false);
   const [now, setNow] = useState(Date.now);
-  const status = delivery.status === 'missed' ? 'available' : delivery.status ?? 'available';
+  const status = delivery.status === 'missed' || delivery.status === 'declined' ? 'available' : delivery.status ?? 'available';
   const active = delivery.status === 'in_progress';
   const incident = delivery.dispatchState === 'incident';
   const assigned = delivery.dispatchState === 'assigned';
@@ -202,24 +211,27 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
   );
 }
 
-function Deliveries({ session, onExpired, onLogout, pushDestination, cancellation, onAcknowledgeCancellation, updates, checkinBlockNotice }: {
+function Deliveries({ session, onExpired, onLogout, pushDestination, cancellation, onAcknowledgeCancellation, updates, checkinBlockNotice, notifications, onApkUpdate }: {
   session: DriverSession; onExpired: () => void; onLogout: () => Promise<void>;
   pushDestination: PushDestination | null;
   checkinBlockNotice?: string;
   cancellation?: OrderCancellationNotice;
   onAcknowledgeCancellation: (id: string) => void;
   updates: AppUpdates;
+  notifications: DriverNotifications;
+  onApkUpdate: (release: DriverApkRelease) => void;
 }) {
   const styles = useStyles();
   const { primary } = useAppTheme();
   const { token, name } = session;
   const [driverName, setDriverName] = useState(name);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationPanel, setNotificationPanel] = useState<'menu' | 'history' | null>(null);
   const [accountScreen, setAccountScreen] = useState<'profile' | 'rate' | null>(null);
   const accountOpen = accountScreen !== null;
   const [agendaOpen, setAgendaOpen] = useState(false);
-  const [onlyMissed, setOnlyMissed] = useState(false);
-  const onlyMissedRef = useRef(false);
+  const [historyFilter, setHistoryFilter] = useState<DeliveryHistory>('all');
+  const historyFilterRef = useRef<DeliveryHistory>('all');
   const [items, setItems] = useState<Delivery[]>([]);
   const [section, setSection] = useState<DeliverySection>(pushDestination?.section ?? 'available');
   const [nextOffset, setNextOffset] = useState<number | null>(null);
@@ -293,7 +305,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
     setPending(mode);
     setError('');
     try {
-      const page = await getDeliveries(token, target, offset, controller.signal, onlyMissedRef.current);
+      const page = await getDeliveries(token, target, offset, controller.signal, historyFilterRef.current);
       if (controller.signal.aborted) return;
       setItems((previous) => mode === 'more' ? [
         ...previous, ...page.items.filter((item) => !previous.some((old) => deliveryKey(old) === deliveryKey(item))),
@@ -330,8 +342,8 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
       return;
     }
     const target = pushDestination.section;
-    onlyMissedRef.current = false;
-    setOnlyMissed(false);
+    historyFilterRef.current = 'all';
+    setHistoryFilter('all');
     setSection(target);
     setItems([]);
     setNextOffset(null);
@@ -394,6 +406,8 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
       if (item.offerId && (action.kind === 'accept' || action.kind === 'decline')) closeOffer(item);
       if (action.kind === 'accept') {
         setActionNotice(`Entrega do pedido #${formatOrderCode(item.orderId)} aceita.`);
+        historyFilterRef.current = 'all';
+        setHistoryFilter('all');
         setSection('accepted');
         setItems([{ ...item, status: 'in_progress', dispatchState: item.managed ? 'assigned' : item.dispatchState }]);
         setNextOffset(null);
@@ -455,16 +469,22 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
   const popup = cancellation ? <OrderCancellationPopup key={cancellation.id} orderId={cancellation.orderId}
     embedded={false} onAcknowledge={() => onAcknowledgeCancellation(cancellation.id)} /> : offerPopup;
   const hasPopup = Boolean(popup);
-  useEffect(() => { if (hasPopup) setMenuOpen(false); }, [hasPopup]);
   useEffect(() => {
-    if ((!menuOpen && !agendaOpen) || Platform.OS !== 'android') return;
+    if (hasPopup) {
+      setMenuOpen(false);
+      setNotificationPanel(null);
+    }
+  }, [hasPopup]);
+  useEffect(() => {
+    if ((!notificationPanel && !menuOpen && !agendaOpen) || Platform.OS !== 'android') return;
     const listener = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (menuOpen) setMenuOpen(false);
+      if (notificationPanel) setNotificationPanel(null);
+      else if (menuOpen) setMenuOpen(false);
       else setAgendaOpen(false);
       return true;
     });
     return () => listener.remove();
-  }, [menuOpen, agendaOpen]);
+  }, [notificationPanel, menuOpen, agendaOpen]);
 
   function runMenuAction(action: () => void) {
     setMenuOpen(false);
@@ -480,24 +500,51 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
     void changeSection(target);
   }
 
+  function openNotification(notice: DriverNotification) {
+    if (notificationPanel === 'menu') {
+      void notifications.markRead(notice.id).catch(() => {
+        Alert.alert('Não foi possível marcar a notificação como lida', 'Tente novamente pelo histórico de notificações.');
+      });
+    }
+    setNotificationPanel(null);
+    if (notice.kind === 'android_apk_release') {
+      if (notifications.availableRelease) onApkUpdate(notifications.availableRelease);
+      else Alert.alert('UniEntregador atualizado', 'Você já tem a versão mais recente do APK.');
+    } else if (notice.kind === 'android_app_update') {
+      void updates.check(true);
+    } else if (notice.data.section) {
+      openDeliverySection(notice.data.section);
+      if (notice.data.offerId) void refreshOffer(true);
+    }
+  }
+
   return (
     <View style={styles.fill}>
-      <View style={styles.fill} accessibilityElementsHidden={menuOpen}
-        importantForAccessibility={menuOpen ? 'no-hide-descendants' : 'auto'}>
+      <View style={styles.fill} accessibilityElementsHidden={menuOpen || Boolean(notificationPanel)}
+        importantForAccessibility={menuOpen || notificationPanel ? 'no-hide-descendants' : 'auto'}>
         <View style={[styles.feedBar, styles.feedHeader]}>
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir menu" accessibilityState={{ expanded: menuOpen }}
             onPress={() => setMenuOpen(true)} style={styles.drawerToggle}>
             <Text style={styles.drawerToggleIcon} accessible={false}>☰</Text>
           </Pressable>
           <Text style={[styles.brand, styles.feedBrand]}>UniEntregador</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Notificações, ${notifications.unreadCount} não lidas`}
+            accessibilityState={{ expanded: Boolean(notificationPanel) }} style={[styles.drawerToggle, styles.notificationToggle]}
+            onPress={() => { setNotificationPanel('menu'); void notifications.refresh(); }}>
+            <Text style={styles.drawerToggleIcon} accessible={false}>🔔</Text>
+            {notifications.unreadCount > 0 && <Text style={styles.notificationBadge} accessible={false}>
+              {notifications.unreadCount > 99 ? '99+' : notifications.unreadCount}
+            </Text>}
+          </Pressable>
         </View>
         <DriverDispatchControls checkinBlockNotice={checkinBlockNotice} token={token} onExpired={onExpired} agenda={agendaOpen}
           showCheckin={!accountOpen} />
-        {!agendaOpen && !accountOpen && <FlatList style={styles.fill} data={items} keyboardShouldPersistTaps="handled" keyExtractor={deliveryKey} renderItem={({ item }) => item.status === 'missed' ? (
+        {!agendaOpen && !accountOpen && <FlatList style={styles.fill} data={items} keyboardShouldPersistTaps="handled" keyExtractor={deliveryKey} renderItem={({ item }) => item.status === 'missed' || item.status === 'declined' ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle} accessibilityRole="header">Pedido #{formatOrderCode(item.orderId)}</Text>
             <Text style={styles.description}>{item.pickup.storeName}</Text>
-            <Text style={styles.description}>Sem resposta{item.missedAt ? ' em ' + new Date(item.missedAt).toLocaleString('pt-BR') : ''}</Text>
+            <Text style={styles.description}>{item.status === 'declined' ? 'Oferta recusada' :
+              'Sem resposta' + (item.missedAt ? ' em ' + new Date(item.missedAt).toLocaleString('pt-BR') : '')}</Text>
           </View>
         ) : (
           <DeliveryCard delivery={item} submitting={submission?.id === item.orderId ? submission.kind : undefined}
@@ -516,20 +563,25 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
                 {section === 'available' ? 'Entregas disponíveis' : 'Minhas entregas'}
               </Text>
               {section === 'accepted' && (
-                <View style={styles.missedOffersFilter}>
-                  <Text style={styles.description}>Somente sem resposta</Text>
-                  <Switch accessibilityLabel="Somente sem resposta" value={onlyMissed}
-                    disabled={submission !== null} onValueChange={(value) => {
-                      onlyMissedRef.current = value;
-                      setOnlyMissed(value);
-                      setItems([]);
-                      setNextOffset(null);
-                      void load('accepted', 0, 'initial');
-                    }} />
+                <View style={styles.historyFilters}>
+                  {deliveryHistoryFilters.map(({ value, label }) => (
+                    <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: historyFilter === value }}
+                      disabled={submission !== null} style={[styles.historyFilter, historyFilter === value && styles.drawerLinkSelected]}
+                      onPress={() => {
+                        if (historyFilterRef.current === value) return;
+                        historyFilterRef.current = value;
+                        setHistoryFilter(value);
+                        setItems([]);
+                        setNextOffset(null);
+                        void load('accepted', 0, 'initial');
+                      }}>
+                      <Text style={styles.drawerText}>{label}</Text>
+                    </Pressable>
+                  ))}
                 </View>
               )}
               {!!actionNotice && <Text accessibilityLiveRegion="polite" style={styles.description}>{actionNotice}</Text>}
-              {actionError && !items.some((item) => item.status !== 'missed' && item.orderId === actionError.id) &&
+              {actionError && !items.some((item) => item.status !== 'missed' && item.status !== 'declined' && item.orderId === actionError.id) &&
                 <Text accessibilityRole="alert" style={styles.error}>{actionError.message}</Text>}
             </View>
           }
@@ -538,7 +590,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
             <View style={styles.empty}><ActivityIndicator color={primary} /><Text style={styles.description}>Buscando entregas…</Text></View>
           ) : !error ? (
             <View style={styles.empty}><Text style={styles.cardTitle}>
-              {section === 'available' ? 'Nenhuma entrega disponível' : onlyMissed ? 'Nenhum pedido sem resposta' : 'Nenhuma entrega no histórico'}
+              {section === 'available' ? 'Nenhuma entrega disponível' : historyFilter === 'declined' ? 'Nenhuma oferta recusada' : historyFilter === 'missed' ? 'Nenhum pedido sem resposta' : 'Nenhuma entrega no histórico'}
             </Text>
               <Text style={styles.description}>Puxe para baixo para atualizar a lista.</Text></View>
           ) : undefined}
@@ -612,6 +664,8 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
           </View>
         </View>
       )}
+      {notificationPanel && !hasPopup && <DriverNotificationPanel mode={notificationPanel} token={token} notifications={notifications}
+        onClose={() => setNotificationPanel(null)} onHistory={() => setNotificationPanel('history')} onSelect={openNotification} />}
       {popup}
     </View>
   );
@@ -627,8 +681,27 @@ function AppContent() {
   const [session, setSession] = useState<DriverSession | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [notice, setNotice] = useState('');
-  const { destination: pushDestination, cancellation, acknowledgeCancellation, updateNotice, checkinBlockNotice } = useDriverPush(session?.token, restoring);
-  const updates = useAppUpdates(!restoring && !cancellation, updateNotice);
+  const { destination: pushDestination, cancellation, acknowledgeCancellation, updateNotice, checkinBlockNotice, notificationSignal } = useDriverPush(session?.token, restoring);
+  const notifications = useDriverNotifications(session?.token, notificationSignal);
+  const [acknowledgedApk, setAcknowledgedApk] = useState<number>();
+  const [apkUpdate, setApkUpdate] = useState<DriverApkRelease | null>(null);
+  const apkPrompt = useRef<number | undefined>(undefined);
+  const release = notifications.availableRelease;
+  const apkPending = release && acknowledgedApk !== release.versionCode;
+  const updates = useAppUpdates(!restoring && !cancellation && (!session || notifications.checked) && !apkPending && !apkUpdate, updateNotice);
+
+  useEffect(() => {
+    if (!apkPending || !release || apkUpdate || restoring || cancellation || updates.promptOpen || updates.phase === 'updating' ||
+        AppState.currentState !== 'active' || apkPrompt.current === release.versionCode) return;
+    apkPrompt.current = release.versionCode;
+    setApkUpdate(release);
+  }, [apkPending, release, apkUpdate, restoring, cancellation, updates.promptOpen, updates.phase]);
+
+  function closeApkUpdate(versionCode: number) {
+    setAcknowledgedApk(versionCode);
+    setApkUpdate(null);
+    void notifications.markRead('apk:' + versionCode).catch(() => undefined);
+  }
 
   useEffect(() => {
     let active = true;
@@ -642,6 +715,7 @@ function AppContent() {
   }, []);
 
   const expire = useCallback(() => {
+    setApkUpdate(null);
     setSession(null);
     setNotice('Sua sessão expirou. Entre novamente.');
     void SecureStore.deleteItemAsync(sessionKey).catch(() => undefined);
@@ -661,6 +735,7 @@ function AppContent() {
   async function logout() {
     await SecureStore.deleteItemAsync(sessionKey);
     void stopDriverBackgroundLocation().catch(() => undefined);
+    setApkUpdate(null);
     setSession(null);
     setNotice('');
   }
@@ -671,8 +746,10 @@ function AppContent() {
         <StatusBar barStyle="dark-content" />
         {restoring ? <View style={styles.center}><ActivityIndicator size="large" color={primary} /><Text style={styles.description}>Restaurando sessão…</Text></View> :
           session ? <Deliveries key={session.token} session={session} onExpired={expire} onLogout={logout} pushDestination={pushDestination}
-            checkinBlockNotice={checkinBlockNotice} cancellation={cancellation} onAcknowledgeCancellation={acknowledgeCancellation} updates={updates} /> :
+            checkinBlockNotice={checkinBlockNotice} cancellation={cancellation} onAcknowledgeCancellation={acknowledgeCancellation} updates={updates} notifications={notifications} onApkUpdate={setApkUpdate} /> :
             <Login onLogin={remember} notice={notice} />}
+        {session && apkUpdate && <DriverApkUpdate key={session.token} initialRelease={apkUpdate}
+          checkApk={notifications.checkApk} onClose={closeApkUpdate} />}
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -706,7 +783,10 @@ const createStyles = ({ primary, primaryInk, secondary, secondaryInk, onPrimary,
   feedBar: { height: 56, flexShrink: 0, backgroundColor: '#fff' },
   feedHeader: { paddingHorizontal: 16, justifyContent: 'flex-start', borderBottomWidth: 1, borderBottomColor: '#d9e4f0',
     backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', gap: 12 },
-  feedBrand: { marginBottom: 0 },
+  feedBrand: { marginBottom: 0, flexShrink: 1 },
+  notificationToggle: { marginLeft: 'auto' },
+  notificationBadge: { position: 'absolute', top: 1, right: 0, minWidth: 17, paddingHorizontal: 3, borderRadius: 9,
+    backgroundColor: '#a0262f', color: '#fff', fontSize: 10, lineHeight: 16, textAlign: 'center', fontWeight: '700' },
   feedDriverName: { color: muted, fontSize: 14, flex: 1 },
   feedVersion: { color: muted, fontSize: 12, flexShrink: 1, maxWidth: '55%', marginLeft: 'auto', textAlign: 'right' },
   feedFooter: { paddingHorizontal: 16, flexDirection: 'row',
@@ -726,7 +806,8 @@ const createStyles = ({ primary, primaryInk, secondary, secondaryInk, onPrimary,
   drawerText: { color: secondaryInk, fontWeight: '600', fontSize: 15 },
   drawerFooter: { padding: 12, borderTopWidth: 1, borderTopColor: '#d9e4f0' },
   drawerSignOut: { marginTop: 0 },
-  missedOffersFilter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  historyFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  historyFilter: { minHeight: 44, paddingHorizontal: 10, justifyContent: 'center', borderRadius: 8, backgroundColor: '#fff' },
   orderSummary: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 },
   deliveryStatus: { fontSize: 13, fontWeight: '700', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
   available: { color: '#24456d', backgroundColor: '#eaf2ff' },

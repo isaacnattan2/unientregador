@@ -3,6 +3,10 @@ node_modules/
 .firebase/
 dist/
 android/
+!/modules/uni-apk-updater/android/
+/modules/uni-apk-updater/android/*
+!/modules/uni-apk-updater/android/build.gradle
+!/modules/uni-apk-updater/android/src/
 ios/
 .env
 .env.*

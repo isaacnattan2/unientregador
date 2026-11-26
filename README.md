@@ -53,21 +53,27 @@ UNI_ANDROID_KEY_PASSWORD=...
 
 Se precisar validar a compatibilidade com um APK distribuído antes deste catálogo, configure também `DRIVER_APP_CURRENT_APK` com o caminho absoluto desse APK. O comando lê o certificado e o código da versão diretamente do arquivo. Você também pode informar `DRIVER_APP_APK_SIGNER_SHA256` caso já tenha o SHA-256 do certificado.
 
-O comando gera o APK no canal `production`, com a API pública do UniWeb (substituível por `DRIVER_APP_RELEASE_API_URL`). Ele atualiza o link no banco após validar a assinatura e confirmar que o arquivo está acessível sem credenciais. Depois de trocar o link, o comando remove APKs anteriores no prefixo `driver-app/` do bucket configurado. Se a limpeza falhar, execute `npm run publishapp` com o mesmo `versionCode` para concluir a limpeza sem recompilar. O botão **Baixar aplicativo** mostra a nova versão na próxima carga do painel. Use o fluxo abaixo para atualizações OTA.
+O comando gera o APK no canal `preview` por padrão. Para gerar um APK de produção, use `npm run publishapp -- --channel production`. O APK usa a API pública do UniWeb (substituível por `DRIVER_APP_RELEASE_API_URL`). Ele atualiza o link no banco após validar a assinatura e confirmar que o arquivo está acessível sem credenciais. Depois de trocar o link, o comando remove APKs anteriores no prefixo `driver-app/` do bucket configurado. Se a limpeza falhar, execute `npm run publishapp` com o mesmo `versionCode` para concluir a limpeza sem recompilar. O botão **Baixar aplicativo** mostra a nova versão na próxima carga do painel. Use o fluxo abaixo para atualizações OTA.
+
+Em APKs com o atualizador nativo, o aviso de versão e o sininho abrem o download dentro do UniEntregador. O app verifica o arquivo e a assinatura antes de abrir o instalador do Android. O sistema pode pedir autorização para instalar a partir do UniEntregador na primeira vez. O APK fica disponível no cache se o entregador decidir instalar depois. A primeira instalação com esse recurso é feita com o APK da área do entregador no UniWeb.
+
+O `publishapp` registra o aviso no histórico e envia um push Android pelo OneSignal depois de atualizar o link do UniWeb. Use as credenciais `ONESIGNAL_DRIVER_APP_ID` e `ONESIGNAL_DRIVER_API_KEY` do app. O envio usa o segmento `Total Subscriptions`, configurável por `ONESIGNAL_DRIVER_APK_SEGMENT`. Se o envio falhar, rode o comando com o mesmo `versionCode` para repetir só as etapas pendentes. A API precisa da migração `add_driver_notifications.sql`.
 
 Para enviar os source maps ao Sentry no `publishapp`, configure `SENTRY_AUTH_TOKEN` em `.env.local` na raiz do UniEntregador. O build também aceita a variável do terminal ou um token no `.env` do app. O `app.json` contém o DSN público usado em execução. Guarde o token de upload fora do Git.
 
 O projeto EAS `@uniapp1/unientregador` usa o canal `preview` para testes e `production` para distribuição. Os builds Android locais usam `preview` por padrão. O perfil `production` no EAS gera um APK no canal de produção.
 
-Para publicar JavaScript e imagens compatíveis com o APK de teste, execute na raiz do app:
+Para publicar JavaScript e imagens para o APK distribuído pelo `publishapp`, execute na raiz do app:
 
 ```powershell
 npm run newversion:android
 ```
 
-O comando publica no canal `preview` e depois envia um push pelo OneSignal para usuários Android com o canal e runtime registrados. Usa as variáveis locais `ONESIGNAL_DRIVER_APP_ID` e `ONESIGNAL_DRIVER_API_KEY`, com fallback para `../uniweb/backend/.env`. A chave fica no ambiente de publicação. Para publicar em produção após validar, use o EAS CLI com `--channel production --environment production --input-dir .expo/eas-production`. Mantenha `expo.version` igual à versão do APK enquanto a atualização mudar apenas JavaScript ou imagens. Mudanças em módulos nativos, permissões ou plugins exigem aumentar `expo.version` e `android.versionCode` e distribuir um novo APK. Use a mesma chave de assinatura do APK instalado para atualizá-lo por cima.
+O comando publica no canal `preview` por padrão e envia o aviso pelo OneSignal aos aparelhos Android inscritos com o mesmo canal e runtime. Use `npm run newversion:android -- --channel production` para publicar em produção. Acrescente `--skip-push` para publicar sem aviso. Mantenha `expo.version` e `android.versionCode` da versão instalada ao publicar JavaScript ou imagens. Mudanças em módulos nativos, permissões ou plugins exigem um novo APK.
 
-Na primeira publicação desse recurso, use `npm run newversion:android -- --skip-push`. Os testadores devem abrir o app, instalar essa OTA, manter as notificações permitidas e estar logados. Para testar a publicação seguinte, mantenha o app aberto e use `npm run newversion:android`. Ao receber o push, o app consulta o Expo e mostra o aviso em primeiro plano. O app também verifica ao abrir e pede confirmação antes de baixar e reiniciar. Atualizações adiadas podem ser instaladas em **Meu perfil → Atualizações do app**. Instale o APK 1.0.2 ou posterior para ativar esse fluxo.
+O canal é gravado no APK. Para passar um aparelho de `production` para `preview`, instale um novo APK gerado para `preview`.
+
+O app também verifica a OTA ao abrir e pede confirmação antes de baixar e reiniciar. Para verificar manualmente, use **Meu perfil → Atualizações do app**. O build envia os source maps da OTA usando o token do Sentry do ambiente, de `.env.local` ou de `.env`.
 
 Para mudar o número exibido no app após o login, ajuste `expo.extra.displayVersion` no `app.json` e publique com `npm run newversion:android`. O novo número aparece depois que o usuário instala a OTA. Para manter a compatibilidade com os APKs atuais, preserve os valores de `expo.version` e `android.versionCode` do APK.
 

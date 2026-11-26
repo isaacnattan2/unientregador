@@ -42,8 +42,9 @@ export interface Delivery {
   destinationArea: string | null;
   destinationAddress?: string | null;
   missedOfferId?: string;
+  declinedOfferId?: string;
   missedAt?: string;
-  status?: 'missed' | 'in_progress' | 'delivered' | 'cancelled' | 'cancelled_by_store';
+  status?: 'missed' | 'declined' | 'in_progress' | 'delivered' | 'cancelled' | 'cancelled_by_store';
   deliveryFee: string | number | null;
   distanceMeters?: number | null;
   pickupDistanceMeters?: number | null;
@@ -98,6 +99,37 @@ async function request(path: string, init: RequestInit = {}): Promise<unknown> {
     clearTimeout(timeout);
     init.signal?.removeEventListener('abort', abort);
   }
+}
+
+export type DriverApkRelease = { versionName: string; versionCode: number; downloadUrl: string; sha256?: string | null };
+
+export type DriverNotification = {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  data: { section?: 'available' | 'accepted'; offerId?: string; versionName?: string; versionCode?: number };
+};
+
+export type DriverNotificationFeed = {
+  items: DriverNotification[];
+  unreadCount: number;
+  nextOffset: number | null;
+  release: DriverApkRelease | null;
+  hasActiveDelivery?: boolean;
+};
+
+export async function getDriverNotifications(token: string, audience: string, signal: AbortSignal, read = false, offset = 0) {
+  return await request(`/auth/me/driver/notifications?${audience}&read=${read ? 1 : 0}&offset=${offset}`, {
+    signal, headers: { Authorization: 'Bearer ' + token },
+  }) as DriverNotificationFeed;
+}
+
+export async function markDriverNotificationRead(token: string, audience: string, id: string) {
+  await request(`/auth/me/driver/notifications/${encodeURIComponent(id)}/read?${audience}`, {
+    method: 'PUT', headers: { Authorization: 'Bearer ' + token },
+  });
 }
 
 export async function loginDriver(email: string, password: string): Promise<DriverSession> {
@@ -202,9 +234,11 @@ export async function saveDriverDeliveryRate(token: string, rateCents: number) {
   }) as DriverDeliveryRate;
 }
 
-export async function getDeliveries(token: string, section: 'available' | 'accepted', offset: number, signal: AbortSignal, onlyMissed = false): Promise<DeliveryPage> {
+export type DeliveryHistory = 'all' | 'missed' | 'declined';
+
+export async function getDeliveries(token: string, section: 'available' | 'accepted', offset: number, signal: AbortSignal, history: DeliveryHistory = 'all'): Promise<DeliveryPage> {
   const result = await request('/orders/' + section + '-deliveries?limit=20&offset=' + offset +
-    (section === 'accepted' ? '&history=' + (onlyMissed ? 'missed' : 'all') : ''), {
+    (section === 'accepted' ? '&history=' + history : ''), {
     signal, headers: { Authorization: 'Bearer ' + token },
   }).catch((error) => {
     if (error instanceof ApiError && error.status === 404) {

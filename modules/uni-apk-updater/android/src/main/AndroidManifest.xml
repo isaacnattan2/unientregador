@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <application>
+        <provider
+            android:name="expo.modules.uniapkupdater.ApkUpdateFileProvider"
+            android:authorities="${applicationId}.uni-apk-updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/uni_apk_update_paths" />
+        </provider>
+    </application>
+</manifest>
