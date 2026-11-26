@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { formatOrderCode } from './api';
+import { deliveryMileage, formatOrderCode } from './api';
 import type { Delivery } from './api';
 import { useAppTheme } from './AppTheme';
 
@@ -58,6 +58,7 @@ export function IncomingDeliveryOffer({ offer, deadline, busy, error, onAccept, 
   const disabled = busy || expired;
   const countdown = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
   const trackWidth = `${Math.min(100, remaining * 100 / (offer.scheduledAt ? 300 : 60))}%` as const;
+  const mileage = deliveryMileage(offer);
   const amount = offer.deliveryFee === null ? null : Number(offer.deliveryFee);
 
   return (
@@ -74,11 +75,12 @@ export function IncomingDeliveryOffer({ offer, deadline, busy, error, onAccept, 
           <Text style={styles.caption}>Valor da corrida</Text>
           <Text style={styles.amount}>{amount === null ? 'A definir' : currency.format(amount)}</Text>
         </View>
-        {offer.distanceMeters != null && <View style={styles.summaryItem}>
+        {mileage && <View style={styles.summaryItem}>
           <Text style={styles.caption}>Distância</Text>
-          <Text style={styles.distance}>{(offer.distanceMeters / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km</Text>
+          <Text style={styles.distance}>{mileage.kilometers.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km</Text>
         </View>}
       </View>
+      {mileage?.amountPerKm != null && <Text style={styles.caption}>{currency.format(mileage.amountPerKm)}/km estimado</Text>}
       <View style={styles.route}>
         <Text style={styles.caption}>Retirada</Text>
         <Text style={[styles.store, { color: theme.secondaryInk }]}>{offer.pickup.storeName}</Text>

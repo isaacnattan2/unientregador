@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 ﻿const apiUrl = (process.env.EXPO_PUBLIC_API_URL || 'https://uniweb-p7mz.onrender.com/api').replace(/\/+$/, '');
 
 export function formatOrderCode(orderId: string) {
@@ -43,12 +45,20 @@ export interface Delivery {
   status?: 'missed' | 'in_progress' | 'delivered' | 'cancelled' | 'cancelled_by_store';
   deliveryFee: string | number | null;
   distanceMeters?: number | null;
+  pickupDistanceMeters?: number | null;
   rateCents?: number | null;
   managed?: boolean;
   scheduledAt?: string | null;
   dispatchState?: string | null;
   offerId?: string;
   offerExpiresAt?: string;
+}
+
+export function deliveryMileage(delivery: Delivery) {
+  if (delivery.distanceMeters == null) return null;
+  const kilometers = (delivery.distanceMeters + (delivery.pickupDistanceMeters ?? 0)) / 1000;
+  const amount = delivery.deliveryFee == null ? null : Number(delivery.deliveryFee);
+  return { kilometers, amountPerKm: amount !== null && Number.isFinite(amount) && kilometers > 0 ? amount / kilometers : null };
 }
 
 export interface DeliveryPage {
@@ -123,6 +133,7 @@ export interface DriverProfile {
   brand: string;
   color: string;
   plate: string;
+  licensePhotoUploadedAt: string | null;
 }
 
 function readDriverProfile(result: unknown): DriverProfile {
@@ -131,6 +142,7 @@ function readDriverProfile(result: unknown): DriverProfile {
     fullName: driver.full_name ?? '', email: driver.email ?? '', phone: driver.phone ?? '',
     vehicleType: driver.vehicle_type ?? '', manufacturer: driver.vehicle_manufacturer ?? '',
     brand: driver.vehicle_brand ?? '', color: driver.vehicle_color ?? '', plate: driver.vehicle_plate ?? '',
+    licensePhotoUploadedAt: driver.license_photo_uploaded_at ?? null,
   };
 }
 
@@ -145,6 +157,19 @@ export async function saveDriverProfile(token: string, profile: DriverProfile) {
     method: 'PUT', body: JSON.stringify(profile),
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
   }));
+}
+
+export async function uploadDriverLicensePhoto(token: string, photo: { uri: string; fileName?: string | null; mimeType?: string }) {
+  const body = new FormData();
+  if (Platform.OS === 'web') {
+    const image = await fetch(photo.uri).then((response) => response.blob());
+    body.append('image', image, photo.fileName ?? 'cnh.jpg');
+  } else {
+    body.append('image', { uri: photo.uri, name: photo.fileName ?? 'cnh.jpg', type: photo.mimeType ?? 'image/jpeg' } as unknown as Blob);
+  }
+  return await request('/auth/me/driver/license-photo', {
+    method: 'PUT', body, headers: { Authorization: 'Bearer ' + token },
+  }) as { uploadedAt: string };
 }
 
 export interface DriverDeliveryRate {

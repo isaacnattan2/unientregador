@@ -7,7 +7,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import * as Updates from 'expo-updates';
 import appConfig from './app.json';
-import { acceptDelivery, ApiError, cancelDelivery, confirmDelivery, formatOrderCode, getCurrentDriverOffer, getDeliveries, getDriverName, loginDriver, pickupDelivery, respondToDeliveryOffer, setDriverPresence } from './src/api';
+import { acceptDelivery, ApiError, cancelDelivery, confirmDelivery, deliveryMileage, formatOrderCode, getCurrentDriverOffer, getDeliveries, getDriverName, loginDriver, pickupDelivery, respondToDeliveryOffer, setDriverPresence } from './src/api';
 import type { Delivery, DriverSession } from './src/api';
 import { DeliveryNavigation } from './src/DeliveryNavigation';
 import { DriverProfileScreen } from './src/DriverProfileScreen';
@@ -119,6 +119,7 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
   const scheduledTime = delivery.scheduledAt ? new Date(delivery.scheduledAt) : null;
   const remaining = delivery.offerExpiresAt ? Math.max(0, Math.ceil((Date.parse(delivery.offerExpiresAt) - now) / 1000)) : null;
   const fee = delivery.deliveryFee === null ? null : Number(delivery.deliveryFee);
+  const mileage = deliveryMileage(delivery);
   const timestamp = delivery.createdAt ? new Date(delivery.createdAt) : null;
   useEffect(() => {
     if (!delivery.offerExpiresAt && !(assigned && scheduledTime)) return;
@@ -144,9 +145,10 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
           <Text style={styles.caption}>{delivery.managed ? 'Valor da corrida' : 'Taxa de entrega'}</Text>
           <Text style={styles.fee}>{fee !== null && Number.isFinite(fee) ? currency.format(fee) :
             delivery.rateCents != null ? 'Distância indisponível' : 'A definir'}</Text>
-          {delivery.distanceMeters != null && delivery.rateCents != null && (
+          {mileage && (
             <Text style={styles.caption}>
-              {(delivery.distanceMeters / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km · {currency.format(delivery.rateCents / 100)}/km
+              {mileage.kilometers.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} km estimados
+              {mileage.amountPerKm !== null ? ' · ' + currency.format(mileage.amountPerKm) + '/km' : ''}
             </Text>
           )}
         </View>

@@ -28,7 +28,12 @@
       }
     },
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      ["expo-image-picker", {
+        "photosPermission": "Permita selecionar a foto da sua CNH.",
+        "cameraPermission": false,
+        "microphonePermission": false
+      }]
     ],
     "extra": {
       "displayVersion": "1.0.10",

@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import type { TextInputProps } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ApiError, getDriverDeliveryRate, getDriverProfile, saveDriverDeliveryRate, saveDriverProfile } from './api';
+import { ApiError, getDriverDeliveryRate, getDriverProfile, saveDriverDeliveryRate, saveDriverProfile, uploadDriverLicensePhoto } from './api';
 import type { DriverDeliveryRate, DriverProfile } from './api';
 import { useAppTheme } from './AppTheme';
 import type { AppPalette } from './AppTheme';
@@ -35,6 +36,33 @@ export function DriverProfileScreen({ token, onClose, onSaved, onRateSaved, onEx
   const [rateVersion, retryRate] = useState(0);
   const [savingRate, setSavingRate] = useState(false);
   const submitting = useRef(false);
+  const uploadingLicense = useRef(false);
+  const [sendingLicense, setSendingLicense] = useState(false);
+  const [licenseError, setLicenseError] = useState('');
+
+  async function selectLicensePhoto() {
+    if (uploadingLicense.current) return;
+    uploadingLicense.current = true;
+    setSendingLicense(true);
+    setLicenseError('');
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85 });
+      if (result.canceled) return;
+      const photo = result.assets[0];
+      if ((photo.fileSize ?? 0) > 5 * 1024 * 1024) {
+        setLicenseError('Selecione uma foto de até 5 MB.');
+        return;
+      }
+      const { uploadedAt } = await uploadDriverLicensePhoto(token, photo);
+      setProfile((current) => current && { ...current, licensePhotoUploadedAt: uploadedAt });
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) onExpired();
+      else setLicenseError(err instanceof Error ? err.message : 'Não foi possível enviar a foto da CNH.');
+    } finally {
+      uploadingLicense.current = false;
+      setSendingLicense(false);
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -170,6 +198,15 @@ export function DriverProfileScreen({ token, onClose, onSaved, onRateSaved, onEx
                 {field('phone', 'Telefone com DDD', { autoComplete: 'tel', keyboardType: 'phone-pad', maxLength: 20 })}
               </View>
               <View style={styles.group}>
+                <Text accessibilityRole="header" style={styles.subtitle}>Foto da CNH</Text>
+                {profile.licensePhotoUploadedAt && <Text style={styles.label}>Foto enviada em {new Date(profile.licensePhotoUploadedAt).toLocaleDateString('pt-BR')}</Text>}
+                {!!licenseError && <Text accessibilityRole="alert" style={styles.error}>{licenseError}</Text>}
+                <Pressable accessibilityRole="button" disabled={sendingLicense || saving}
+                  onPress={() => void selectLicensePhoto()} style={styles.option}>
+                  <Text style={styles.label}>{sendingLicense ? 'Enviando…' : profile.licensePhotoUploadedAt ? 'Substituir foto da CNH' : 'Enviar foto da CNH'}</Text>
+                </Pressable>
+              </View>
+              <View style={styles.group}>
                 <Text accessibilityRole="header" style={styles.subtitle}>Veículo</Text>
                 <View accessibilityRole="radiogroup" accessibilityLabel="Tipo de veículo" style={styles.options}>
                   {vehicles.map(([value, label]) => {
@@ -187,7 +224,7 @@ export function DriverProfileScreen({ token, onClose, onSaved, onRateSaved, onEx
                 {field('plate', profile.vehicleType === 'bicycle' ? 'Placa (opcional)' : 'Placa', { autoCapitalize: 'characters', maxLength: 10 })}
               </View>
               <Pressable accessibilityRole="button" accessibilityState={{ disabled: saving, busy: saving }}
-                disabled={saving || savingRate} onPress={() => void save()} style={[styles.option, styles.selected]}>
+                disabled={saving || savingRate || sendingLicense} onPress={() => void save()} style={[styles.option, styles.selected]}>
                 <Text style={styles.white}>{saving ? 'Salvando…' : 'Salvar alterações'}</Text>
               </Pressable>
             </>}
