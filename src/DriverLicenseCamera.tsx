@@ -134,12 +134,12 @@ export function DriverLicenseCamera({ onClose, onPhoto }: {
         </Pressable>
       </View>
       {permission?.granted ? <>
-        <Text style={styles.text}>Coloque a CNH deitada sobre um fundo contrastante, com os quatro lados dentro da moldura.</Text>
+        <Text style={styles.text}>Vire o celular de lado e aproxime a câmera até a CNH preencher a moldura, com os quatro lados visíveis.</Text>
         <View style={styles.preview} onLayout={({ nativeEvent }) => {
           const { width, height } = nativeEvent.layout;
           if (height > 0) previewRatio.current = width / height;
         }}>
-          {foreground && <CameraView ref={camera} facing="back" ratio="4:3" animateShutter={false}
+          {foreground && <CameraView ref={camera} facing="back" ratio="4:3" animateShutter={false} responsiveOrientationWhenOrientationLocked
             style={StyleSheet.absoluteFill} onCameraReady={() => setCameraReady(true)}
             onMountError={() => setError('Não foi possível abrir a câmera.')} />}
           <View pointerEvents="none" style={[styles.frame, framed && styles.alignedFrame]} />

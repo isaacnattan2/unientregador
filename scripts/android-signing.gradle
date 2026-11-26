@@ -1,0 +1,22 @@
+def distributionKeystore = System.getenv('UNI_ANDROID_KEYSTORE')
+def distributionStorePassword = System.getenv('UNI_ANDROID_KEYSTORE_PASSWORD')
+def distributionKeyAlias = System.getenv('UNI_ANDROID_KEY_ALIAS')
+def distributionKeyPassword = System.getenv('UNI_ANDROID_KEY_PASSWORD')
+def signingValues = [distributionKeystore, distributionStorePassword, distributionKeyAlias, distributionKeyPassword]
+
+if (signingValues.any { it }) {
+    if (!signingValues.every { it }) {
+        throw new GradleException('Configure todas as variaveis UNI_ANDROID da assinatura.')
+    }
+    def keystoreFile = new File(distributionKeystore)
+    if (!keystoreFile.isAbsolute() || !keystoreFile.isFile()) {
+        throw new GradleException('UNI_ANDROID_KEYSTORE precisa apontar para um arquivo de chave existente.')
+    }
+    def distribution = android.signingConfigs.create('distribution') {
+        storeFile = keystoreFile
+        storePassword = distributionStorePassword
+        keyAlias = distributionKeyAlias
+        keyPassword = distributionKeyPassword
+    }
+    android.buildTypes.getByName('release').signingConfig = distribution
+}

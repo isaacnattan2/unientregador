@@ -29,7 +29,6 @@ const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: '
 const dateTime = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const appVersion = appConfig.expo.extra.displayVersion.trim() ||
   Updates.runtimeVersion || appConfig.expo.version;
-const activeUpdate = !Updates.isEmbeddedLaunch && Updates.updateId ? Updates.updateId.slice(0, 8) : null;
 const messageOf = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
 
 function Button({ label, onPress, disabled = false, secondary = false, style }: {
@@ -563,7 +562,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
           }} />}
         <View style={[styles.feedBar, styles.feedFooter]}>
           {!!driverName && <Text style={styles.feedDriverName} numberOfLines={1}>{driverName}</Text>}
-          <Text style={styles.feedVersion} numberOfLines={2}>Versão {appVersion}{activeUpdate ? ' · Atualização ' + activeUpdate : ''}</Text>
+          <Text style={styles.feedVersion} numberOfLines={2}>Versão {appVersion}</Text>
         </View>
       </View>
       {menuOpen && !hasPopup && (
@@ -577,7 +576,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
                 style={styles.drawerToggle}><Text style={styles.drawerToggleIcon} accessible={false}>×</Text></Pressable>
             </View>
             <ScrollView style={styles.fill} contentContainerStyle={styles.drawerLinks}>
-              <Text style={styles.drawerGroup}>Entregas</Text>
+              <Text accessibilityRole="header" style={styles.drawerGroup}>Entregas</Text>
               {(['available', 'accepted'] as const).map((target) => (
                 <Pressable key={target} accessibilityRole="button" accessibilityState={{ selected: !agendaOpen && !accountOpen && section === target }}
                   disabled={submission !== null || signingOut}
@@ -598,7 +597,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
                 style={[styles.drawerLink, accountScreen === 'rate' && styles.drawerLinkSelected]}>
                 <Text style={styles.drawerText}>Taxa de entrega</Text>
               </Pressable>
-              <Text style={styles.drawerGroup}>Conta</Text>
+              <Text accessibilityRole="header" style={styles.drawerGroup}>Conta</Text>
               <Pressable accessibilityRole="button" disabled={submission !== null || signingOut}
                 accessibilityState={{ selected: accountScreen === 'profile' }}
                 onPress={() => runMenuAction(() => { setAgendaOpen(false); setAccountScreen('profile'); })}
@@ -721,7 +720,7 @@ const createStyles = ({ primary, primaryInk, secondary, secondaryInk, onPrimary,
   drawerLogo: { width: 36, height: 36, borderRadius: 8 },
   drawerTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: secondaryInk },
   drawerLinks: { padding: 12, gap: 4 },
-  drawerGroup: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 4, color: muted, fontWeight: '700', fontSize: 13 },
+  drawerGroup: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 4, color: muted, fontWeight: '700', fontSize: 11 },
   drawerLink: { minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, justifyContent: 'center', borderRadius: 8 },
   drawerLinkSelected: { backgroundColor: '#eaf2ff' },
   drawerText: { color: secondaryInk, fontWeight: '600', fontSize: 15 },

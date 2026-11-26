@@ -1,5 +1,5 @@
-const { withProjectBuildGradle } = require('expo/config-plugins');
-const { existsSync } = require('node:fs');
+const { AndroidConfig, withAndroidManifest, withAppBuildGradle, withDangerousMod, withMainApplication, withProjectBuildGradle } = require('expo/config-plugins');
+const { copyFileSync, existsSync, mkdirSync } = require('node:fs');
 const { join } = require('node:path');
 
 function withShortExpoCmakePath(config) {
@@ -11,6 +11,60 @@ function withShortExpoCmakePath(config) {
     mod.modResults.contents = contents.replace(reactPlugin, (line) => `${directive}\n${line.trimEnd()}\n`);
     return mod;
   });
+}
+
+function withAndroidReleaseSigning(config) {
+  return withAppBuildGradle(config, (mod) => {
+    const directive = "apply from: rootProject.file('../scripts/android-signing.gradle')";
+    if (!mod.modResults.contents.includes(directive)) {
+      mod.modResults.contents = mod.modResults.contents.trimEnd() + '\n\n' + directive + '\n';
+    }
+    return mod;
+  });
+}
+
+function withDeliveryOfferChannel(config) {
+  return withMainApplication(config, (mod) => {
+    const channelId = 'uni_delivery_offers_v1';
+    if (mod.modResults.contents.includes('"' + channelId + '"')) return mod;
+    const onCreate = '    super.onCreate()';
+    if (mod.modResults.language !== 'kt' || !mod.modResults.contents.includes(onCreate)) {
+      throw new Error('Não foi possível configurar o canal Android de ofertas no MainApplication.');
+    }
+    mod.modResults.contents = mod.modResults.contents.replace(onCreate, [
+      onCreate,
+      '    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {',
+      '      val channel = android.app.NotificationChannel(',
+      '        "' + channelId + '", "Ofertas de entrega", android.app.NotificationManager.IMPORTANCE_HIGH',
+      '      )',
+      '      val sound = android.net.Uri.parse("android.resource://$packageName/raw/uni_delivery_offer")',
+      '      val audio = android.media.AudioAttributes.Builder()',
+      '        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION).build()',
+      '      channel.setSound(sound, audio)',
+      '      getSystemService(android.app.NotificationManager::class.java).createNotificationChannel(channel)',
+      '    }',
+    ].join('\n'));
+    return mod;
+  });
+}
+
+function withDeliveryOfferCountdown(config) {
+  const extensionPackage = 'br.com.uniweb.unientregador';
+  const className = 'DeliveryOfferNotificationExtension';
+  config = withAndroidManifest(config, (mod) => {
+    const application = AndroidConfig.Manifest.getMainApplicationOrThrow(mod.modResults);
+    AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+      application, 'com.onesignal.NotificationServiceExtension', extensionPackage + '.' + className,
+    );
+    return mod;
+  });
+  return withDangerousMod(config, ['android', (mod) => {
+    const sourceDirectory = join(mod.modRequest.platformProjectRoot, 'app', 'src', 'main', 'java', ...extensionPackage.split('.'));
+    mkdirSync(sourceDirectory, { recursive: true });
+    const file = className + '.kt';
+    copyFileSync(join(__dirname, 'scripts', file), join(sourceDirectory, file));
+    return mod;
+  }]);
 }
 
 const pushMode = process.env.ONESIGNAL_APNS_MODE || 'development';
@@ -37,7 +91,7 @@ module.exports = ({ config }) => ({
     entitlements: { ...config.ios?.entitlements, 'aps-environment': pushMode },
   },
   plugins: [
-    ['onesignal-expo-plugin', { mode: pushMode }],
+    ['onesignal-expo-plugin', { mode: pushMode, sounds: ['./assets/uni_delivery_offer.wav'] }],
     ...(config.plugins ?? []),
     ['expo-location', {
       isAndroidForegroundServiceEnabled: true,
@@ -47,5 +101,8 @@ module.exports = ({ config }) => ({
     }],
     '@maplibre/maplibre-react-native',
     withShortExpoCmakePath,
+    withDeliveryOfferChannel,
+    withDeliveryOfferCountdown,
+    withAndroidReleaseSigning,
   ],
 });

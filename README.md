@@ -34,6 +34,27 @@ O build de distribuição de iOS exige credenciais de assinatura da Apple. O ide
 
 ## Atualizações do UniEntregador
 
+Para compilar e publicar um APK completo na área do entregador do UniWeb, execute `npm run publishapp` na raiz do UniEntregador. Antes da primeira publicação:
+
+1. Aplique `uniweb/backend/migrations/add_driver_app_release.sql` e publique a API do UniWeb atualizada. Enquanto não houver APK no banco, o botão usa `DRIVER_APP_DOWNLOAD_URL`.
+2. Em `uniweb/backend/.env`, use as credenciais do banco e do Neon Object Storage de distribuição. O script usa `NEON_STORAGE_BUCKET` ou, se configurado, `DRIVER_APP_APK_BUCKET`. O bucket precisa ter acesso `public_read`.
+3. Atualize `expo.version` e aumente `android.versionCode` em `app.json` para cada novo APK.
+
+Na primeira execução de um catálogo vazio, o comando cria a chave de distribuição automaticamente se você não configurar uma chave própria. As próximas publicações reutilizam o keystore e as credenciais em `uniweb/backend/.env.driver-app-signing/` e conferem a assinatura com a registrada no banco. Faça backup privado dessa pasta. A primeira instalação com a chave nova pode exigir desinstalar uma versão assinada com outra chave.
+
+Para continuar usando uma chave existente, configure estas variáveis em `uniweb/backend/.env`. O Gradle assina o APK automaticamente:
+
+```dotenv
+UNI_ANDROID_KEYSTORE=C:/chaves/unientregador.jks
+UNI_ANDROID_KEYSTORE_PASSWORD=...
+UNI_ANDROID_KEY_ALIAS=...
+UNI_ANDROID_KEY_PASSWORD=...
+```
+
+Se precisar validar a compatibilidade com um APK distribuído antes deste catálogo, configure também `DRIVER_APP_CURRENT_APK` com o caminho absoluto desse APK. O comando lê o certificado e o código da versão diretamente do arquivo. Você também pode informar `DRIVER_APP_APK_SIGNER_SHA256` caso já tenha o SHA-256 do certificado.
+
+O comando gera o APK no canal `production`, com a API pública do UniWeb (substituível por `DRIVER_APP_RELEASE_API_URL`). Ele atualiza o link no banco após validar a assinatura e confirmar que o arquivo está acessível sem credenciais. Depois de trocar o link, o comando remove APKs anteriores no prefixo `driver-app/` do bucket configurado. Se a limpeza falhar, execute `npm run publishapp` com o mesmo `versionCode` para concluir a limpeza sem recompilar. O botão **Baixar aplicativo** mostra a nova versão na próxima carga do painel. Use o fluxo abaixo para atualizações OTA.
+
 O projeto EAS `@uniapp1/unientregador` usa o canal `preview` para testes e `production` para distribuição. Os builds Android locais usam `preview` por padrão. O perfil `production` no EAS gera um APK no canal de produção.
 
 Para publicar JavaScript e imagens compatíveis com o APK de teste, execute na raiz do app:

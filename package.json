@@ -7,6 +7,7 @@
     "start": "expo start",
     "android": "expo run:android",
     "android:release": "node scripts/android-release.cjs",
+    "publishapp": "node ../uniweb/backend/scripts/publish-driver-apk.cjs",
     "newversion:android": "node scripts/publish-android-update.cjs",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit"

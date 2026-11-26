@@ -1,4 +1,4 @@
-export const licenseFrame = { left: 0.09, right: 0.91, top: 0.31, bottom: 0.69 };
+export const licenseFrame = { left: 0.145, right: 0.855, top: 0.06, bottom: 0.94 };
 
 interface CameraPixels {
   width: number;
@@ -8,16 +8,20 @@ interface CameraPixels {
 
 // Find a continuous contrast edge near each side of the guide.
 export function hasFramedLicense({ width, height, data }: CameraPixels, previewRatio: number) {
+  if (width <= height) return false;
+
+  // The guide is centered in the portrait preview, while the camera saves a landscape image.
+  const landscapePreviewRatio = 1 / previewRatio;
   const imageRatio = width / height;
-  const visibleWidth = Math.min(1, previewRatio / imageRatio);
-  const visibleHeight = Math.min(1, imageRatio / previewRatio);
+  const visibleWidth = Math.min(1, landscapePreviewRatio / imageRatio);
+  const visibleHeight = Math.min(1, imageRatio / landscapePreviewRatio);
   const x = (fraction: number) => Math.round(width * ((1 - visibleWidth) / 2 + visibleWidth * fraction));
   const y = (fraction: number) => Math.round(height * ((1 - visibleHeight) / 2 + visibleHeight * fraction));
 
-  const left = x(licenseFrame.left);
-  const right = x(licenseFrame.right);
-  const top = y(licenseFrame.top);
-  const bottom = y(licenseFrame.bottom);
+  const left = x(licenseFrame.top);
+  const right = x(licenseFrame.bottom);
+  const top = y(licenseFrame.left);
+  const bottom = y(licenseFrame.right);
   const luminosity = (x: number, y: number) => {
     const index = (y * width + x) * 4;
     return (data[index] * 3 + data[index + 1] * 6 + data[index + 2]) / 10;
