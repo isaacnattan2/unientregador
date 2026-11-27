@@ -3,7 +3,7 @@
     "name": "UniEntregador",
     "slug": "unientregador",
     "owner": "uniapp1",
-    "version": "1.2.4",
+    "version": "1.2.5",
     "icon": "./assets/unientregador-icon.png",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -21,9 +21,9 @@
     },
     "android": {
       "package": "br.com.uniweb.unientregador",
-      "versionCode": 16,
+      "versionCode": 17,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/unientregador-icon.png",
+        "foregroundImage": "./assets/unientregador-adaptive-icon.png",
         "backgroundColor": "#155BC7"
       }
     },
@@ -63,7 +63,7 @@
     ],
     "extra": {
       "sentryDsn": "https://65a6b3a59ff0edd5c2b09de58ce2ae6f@o1086889.ingest.us.sentry.io/4512495589326848",
-      "displayVersion": "1.2.8",
+      "displayVersion": "1.2.9",
       "oneSignalAppId": "2b55ab82-9b7f-4bab-9b74-c2736a7d8cf7",
       "eas": {
         "projectId": "bc0e468e-ad54-429c-a1b2-3295d573b1ef"

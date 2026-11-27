@@ -78,7 +78,8 @@ export async function getCurrentDriverOffer(token: string, signal: AbortSignal) 
 
 export type DriverFinance =
   | { configured: false; registrationPending?: boolean; approval?: { general: string } }
-  | { configured: true; availableBalance: number; sandbox: boolean; approval: { bankAccountInfo?: string } };
+  | { configured: true; availableBalance: number; sandbox: boolean; approval: { bankAccountInfo?: string };
+      transfers?: { id: string; status: string; value: number; operationType?: string | null }[] };
 
 export async function getDriverFinance(token: string, signal: AbortSignal): Promise<DriverFinance> {
   return await request('/auth/me/driver/withdrawals', {

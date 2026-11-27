@@ -5,6 +5,10 @@ import type { DriverFinance } from './api';
 import { useAppTheme } from './AppTheme';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const transferStatuses: Partial<Record<string, string>> = {
+  DONE: 'Realizado', PENDING: 'Pendente', SCHEDULED: 'Agendado', BANK_PROCESSING: 'Em processamento bancário',
+  BLOCKED: 'Bloqueado', CANCELLED: 'Cancelado', FAILED: 'Com falha',
+};
 
 export function DriverFinanceScreen({ token, menuOpen, onBack, onExpired }: {
   token: string; menuOpen: boolean; onBack: () => void; onExpired: () => void;
@@ -65,17 +69,30 @@ export function DriverFinanceScreen({ token, menuOpen, onBack, onExpired }: {
       {loading && <ActivityIndicator color={theme.primary} accessibilityLabel="Consultando saldo" />}
       {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
       {data?.configured ? (
-        <View style={styles.card}>
-          <Text style={styles.caption}>Saldo disponível no Asaas{data.sandbox ? ' · Sandbox' : ''}</Text>
-          <Text style={[styles.balance, { color: theme.secondaryInk }]}>{currency.format(data.availableBalance)}</Text>
-          <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canWithdraw }} disabled={!canWithdraw}
-            onPress={openWithdrawal} style={[styles.button, { backgroundColor: theme.primary, opacity: canWithdraw ? 1 : 0.5 }]}>
-            <Text style={[styles.action, { color: theme.onPrimary }]}>Sacar pelo Asaas</Text>
-          </Pressable>
-          <Text style={styles.caption}>{data.availableBalance <= 0 ? 'Saque disponível quando houver saldo.'
-            : data.approval.bankAccountInfo !== 'APPROVED' ? 'Aguarde a aprovação dos dados bancários para sacar.'
-              : 'Entre na sua conta Asaas para escolher o valor e confirmar o saque.'}</Text>
-        </View>
+        <>
+          <View style={styles.card}>
+            <Text style={styles.caption}>Saldo disponível no Asaas{data.sandbox ? ' · Sandbox' : ''}</Text>
+            <Text style={[styles.balance, { color: theme.secondaryInk }]}>{currency.format(data.availableBalance)}</Text>
+            <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canWithdraw }} disabled={!canWithdraw}
+              onPress={openWithdrawal} style={[styles.button, { backgroundColor: theme.primary, opacity: canWithdraw ? 1 : 0.5 }]}>
+              <Text style={[styles.action, { color: theme.onPrimary }]}>Sacar pelo Asaas</Text>
+            </Pressable>
+            <Text style={styles.caption}>{data.availableBalance <= 0 ? 'Saque disponível quando houver saldo.'
+              : data.approval.bankAccountInfo !== 'APPROVED' ? 'Aguarde a aprovação dos dados bancários para sacar.'
+                : 'Entre na sua conta Asaas para escolher o valor e confirmar o saque.'}</Text>
+          </View>
+          <View style={styles.card}>
+            <Text accessibilityRole="header" style={[styles.action, { color: theme.secondaryInk }]}>Transferências recentes</Text>
+            {data.transfers?.length ? data.transfers.map((transfer) => (
+              <View key={transfer.id} style={styles.transfer}>
+                <Text style={styles.caption}>
+                  {[transfer.operationType, transferStatuses[transfer.status] ?? transfer.status].filter(Boolean).join(' · ')}
+                </Text>
+                <Text style={[styles.action, { color: theme.secondaryInk }]}>{currency.format(transfer.value)}</Text>
+              </View>
+            )) : <Text style={styles.caption}>Nenhuma transferência encontrada.</Text>}
+          </View>
+        </>
       ) : data && (
         <View style={styles.card}>
           <Text style={styles.caption}>{data.registrationPending || data.approval
@@ -97,5 +114,6 @@ const styles = StyleSheet.create({
   balance: { fontSize: 30, fontWeight: '700' },
   button: { minHeight: 44, borderRadius: 8, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12 },
   action: { fontSize: 15, fontWeight: '600' },
+  transfer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8 },
   error: { color: '#991b1b', fontSize: 14 },
 });
