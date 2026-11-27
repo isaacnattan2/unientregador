@@ -2,6 +2,7 @@ const { spawnSync } = require('node:child_process');
 const { copyFileSync, existsSync, readFileSync } = require('node:fs');
 const path = require('node:path');
 const { parseEnv } = require('node:util');
+const { prepareWindowsAutolinking } = require('./windows-autolinking.cjs');
 
 const project = path.resolve(__dirname, '..');
 const expoCli = path.relative(project, require.resolve('expo/bin/cli'));
@@ -35,6 +36,8 @@ function runRelease(projectPath) {
   const android = path.join(projectPath, 'android');
   const wrapper = path.join(android, windows ? 'gradlew.bat' : 'gradlew');
   if (!existsSync(wrapper)) throw new Error('Gere a pasta Android com npx expo prebuild --platform android antes da release.');
+
+  if (windows && projectPath !== project) prepareWindowsAutolinking(project, projectPath, env);
 
   const result = args.length
     ? spawnSync(process.execPath, [expoCli, 'run:android', '--variant', 'release', '--no-bundler', ...args],

@@ -3,7 +3,7 @@
     "name": "UniEntregador",
     "slug": "unientregador",
     "owner": "uniapp1",
-    "version": "1.1.4",
+    "version": "1.2.4",
     "icon": "./assets/unientregador-icon.png",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -21,7 +21,7 @@
     },
     "android": {
       "package": "br.com.uniweb.unientregador",
-      "versionCode": 15,
+      "versionCode": 16,
       "adaptiveIcon": {
         "foregroundImage": "./assets/unientregador-icon.png",
         "backgroundColor": "#155BC7"
@@ -29,19 +29,41 @@
     },
     "plugins": [
       "expo-secure-store",
-      ["@sentry/react-native/expo", { "organization": "bitcrawler-20", "project": "unientregador", "url": "https://sentry.io/" }],
-      ["expo-image-picker", {
-        "photosPermission": "Permita selecionar a foto da sua CNH.",
-        "microphonePermission": false
-      }],
-      ["expo-camera", {
-        "cameraPermission": "Permita usar a câmera para fotografar sua CNH.",
-        "recordAudioAndroid": false
-      }]
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "bitcrawler-20",
+          "project": "unientregador",
+          "url": "https://sentry.io/"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permita selecionar a foto da sua CNH.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permita usar a câmera para fotografar sua CNH.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/unientregador-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#0B53BF"
+        }
+      ]
     ],
     "extra": {
       "sentryDsn": "https://65a6b3a59ff0edd5c2b09de58ce2ae6f@o1086889.ingest.us.sentry.io/4512495589326848",
-      "displayVersion": "1.1.7",
+      "displayVersion": "1.2.8",
       "oneSignalAppId": "2b55ab82-9b7f-4bab-9b74-c2736a7d8cf7",
       "eas": {
         "projectId": "bc0e468e-ad54-429c-a1b2-3295d573b1ef"
