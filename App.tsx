@@ -11,6 +11,7 @@ import { acceptDelivery, ApiError, cancelDelivery, confirmDelivery, deliveryMile
 import type { DriverApkRelease, Delivery, DeliveryHistory, DriverNotification, DriverSession } from './src/api';
 import { DeliveryNavigation } from './src/DeliveryNavigation';
 import { DriverProfileScreen } from './src/DriverProfileScreen';
+import { DriverFinanceScreen } from './src/DriverFinanceScreen';
 import { DriverDispatchControls } from './src/DriverDispatchControls';
 import { IncomingDeliveryOffer, OrderCancellationPopup } from './src/IncomingDeliveryOffer';
 import { AppThemeProvider, useAppTheme } from './src/AppTheme';
@@ -249,7 +250,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
   const [driverName, setDriverName] = useState(name);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationPanel, setNotificationPanel] = useState<'menu' | 'history' | null>(null);
-  const [accountScreen, setAccountScreen] = useState<'profile' | 'rate' | null>(null);
+  const [accountScreen, setAccountScreen] = useState<'profile' | 'rate' | 'finance' | null>(null);
   const accountOpen = accountScreen !== null;
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<DeliveryHistory>('all');
@@ -625,7 +626,9 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
                 disabled={pending !== null || submission !== null} onPress={() => void load(section, nextOffset, 'more')} /></View>
             )}
           </>} />}
-        {accountScreen && <DriverProfileScreen key={accountScreen} section={accountScreen} token={token} onExpired={onExpired}
+        {accountScreen === 'finance' && <DriverFinanceScreen token={token} menuOpen={menuOpen}
+          onExpired={onExpired} onBack={() => setAccountScreen(null)} />}
+        {(accountScreen === 'profile' || accountScreen === 'rate') && <DriverProfileScreen key={accountScreen} section={accountScreen} token={token} onExpired={onExpired}
           updates={updates} menuOpen={menuOpen}
           onClose={() => setAccountScreen(null)}
           onRateSaved={() => { if (section === 'available') void load('available', 0, 'refresh'); }}
@@ -672,6 +675,12 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
                 <Text style={styles.drawerText}>Taxa de entrega</Text>
               </Pressable>
               <Text accessibilityRole="header" style={styles.drawerGroup}>Conta</Text>
+              <Pressable accessibilityRole="button" disabled={submission !== null || signingOut}
+                accessibilityState={{ selected: accountScreen === 'finance' }}
+                onPress={() => runMenuAction(() => { setAgendaOpen(false); setAccountScreen('finance'); })}
+                style={[styles.drawerLink, accountScreen === 'finance' && styles.drawerLinkSelected]}>
+                <Text style={styles.drawerText}>Financeiro</Text>
+              </Pressable>
               <Pressable accessibilityRole="button" disabled={submission !== null || signingOut}
                 accessibilityState={{ selected: accountScreen === 'profile' }}
                 onPress={() => runMenuAction(() => { setAgendaOpen(false); setAccountScreen('profile'); })}

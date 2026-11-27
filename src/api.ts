@@ -75,6 +75,16 @@ export async function getCurrentDriverOffer(token: string, signal: AbortSignal) 
   }) as { mode: 'push' | 'polling'; serverNow: string; offer: Delivery | null };
 }
 
+export type DriverFinance =
+  | { configured: false; registrationPending?: boolean; approval?: { general: string } }
+  | { configured: true; availableBalance: number; sandbox: boolean; approval: { bankAccountInfo?: string } };
+
+export async function getDriverFinance(token: string, signal: AbortSignal): Promise<DriverFinance> {
+  return await request('/auth/me/driver/withdrawals', {
+    signal, headers: { Authorization: 'Bearer ' + token },
+  }) as DriverFinance;
+}
+
 async function request(path: string, init: RequestInit = {}): Promise<unknown> {
   const controller = new AbortController();
   const abort = () => controller.abort();
