@@ -39,6 +39,7 @@ export interface Delivery {
   orderNumber: string;
   createdAt: string | null;
   pickup: { storeId: string; storeName: string; address: string | null };
+  pickups?: { orderId: string; storeName: string; address: string; collected: boolean }[];
   destinationArea: string | null;
   destinationAddress?: string | null;
   missedOfferId?: string;
@@ -292,7 +293,7 @@ async function dispatchRequest(token: string, path: string, method: string, body
 }
 
 export async function setDriverPresence(token: string, action: 'checkin' | 'checkout' | 'location', point?: Coordinates, signal?: AbortSignal) {
-  return await dispatchRequest(token, '/auth/me/driver/presence', 'PUT', { action, ...point }, signal) as DriverPresence;
+  return await dispatchRequest(token, '/auth/me/driver/presence', 'PUT', { action, ...point, multiPickup: true }, signal) as DriverPresence;
 }
 
 export async function addDriverShift(token: string, startsAt: string, endsAt: string, point: Coordinates, signal?: AbortSignal) {
@@ -315,11 +316,13 @@ export async function deleteDriverWeeklyShift(token: string, id: string) {
 }
 
 export async function respondToDeliveryOffer(token: string, orderId: string, offerId: string, accept: boolean, signal: AbortSignal) {
-  await dispatchRequest(token, '/orders/available-deliveries/' + encodeURIComponent(orderId) + '/respond', 'POST', { offerId, accept }, signal);
+  await dispatchRequest(token, '/orders/available-deliveries/' + encodeURIComponent(orderId) + '/respond', 'POST',
+    { offerId, accept, multiPickup: true }, signal);
 }
 
-export async function pickupDelivery(token: string, orderId: string, signal: AbortSignal) {
-  await dispatchRequest(token, '/orders/accepted-deliveries/' + encodeURIComponent(orderId) + '/pickup', 'POST', undefined, signal);
+export async function pickupDelivery(token: string, orderId: string, signal: AbortSignal, stopOrderId?: string) {
+  await dispatchRequest(token, '/orders/accepted-deliveries/' + encodeURIComponent(orderId) + '/pickup', 'POST',
+    stopOrderId ? { stopOrderId } : undefined, signal);
 }
 
 export interface Coordinates {

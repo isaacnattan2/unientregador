@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, AppState, BackHandler, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar,
+  ActivityIndicator, Alert, AppState, BackHandler, FlatList, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StatusBar,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -108,7 +108,8 @@ const deliveryStatusLabels = {
   cancelled_by_store: 'Pedido cancelado',
 };
 
-type DeliveryAction = { kind: 'accept' | 'decline' | 'pickup' } | { kind: 'cancel'; reason?: string } | { kind: 'confirm'; code: string };
+type DeliveryAction = { kind: 'accept' | 'decline' } | { kind: 'pickup'; stopOrderId?: string } |
+  { kind: 'cancel'; reason?: string } | { kind: 'confirm'; code: string };
 
 function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, onNavigate, map }: {
   delivery: Delivery; submitting: DeliveryAction['kind'] | undefined; disabled: boolean;
@@ -134,9 +135,13 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [delivery.offerExpiresAt, assigned, delivery.scheduledAt]);
+  const nextPickup = delivery.pickups?.find((pickup) => !pickup.collected);
+  const hasCollected = delivery.pickups?.some((pickup) => pickup.collected);
   return (
     <View style={styles.card}>
-      <Text accessibilityRole="header" style={styles.cardTitle}>{delivery.pickup.storeName}</Text>
+      <Text accessibilityRole="header" style={styles.cardTitle}>
+        {delivery.pickups ? `${delivery.pickups.length} coletas` : delivery.pickup.storeName}
+      </Text>
       <View style={styles.orderSummary}>
         <Text style={styles.order}>Pedido #{formatOrderCode(delivery.orderId)}</Text>
         <Text style={[styles.deliveryStatus, styles[status === 'cancelled_by_store' ? 'cancelled' : status]]}>
@@ -144,8 +149,19 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
             delivery.offerId && !delivery.status ? 'Oferta de entrega' : deliveryStatusLabels[status]}
         </Text>
       </View>
-      <Text style={styles.label}>Retirada</Text>
-      <Text style={styles.body}>{delivery.pickup.address || 'Endereço não informado pela loja'}</Text>
+      <Text style={styles.label}>{delivery.pickups ? 'Paradas de coleta' : 'Retirada'}</Text>
+      {delivery.pickups ? delivery.pickups.map((pickup, index) => (
+        <View key={pickup.orderId}>
+          <Text style={styles.label}>{index + 1}. {pickup.storeName}{pickup.collected ? ' · Coletado' : ''}</Text>
+          <Text style={styles.body}>{pickup.address}</Text>
+          {active && assigned && !incident && pickup.orderId === nextPickup?.orderId && (
+            <Button label="Abrir próxima coleta no mapa" secondary disabled={disabled} onPress={() => {
+              const url = 'geo:0,0?q=' + encodeURIComponent(pickup.address);
+              void Linking.openURL(url).catch(() => Alert.alert('Mapa indisponível', pickup.address));
+            }} />
+          )}
+        </View>
+      )) : <Text style={styles.body}>{delivery.pickup.address || 'Endereço não informado pela loja'}</Text>}
       <Text style={styles.label}>Destino</Text>
       <Text style={styles.body}>{delivery.destinationAddress || delivery.destinationArea || 'Endereço não informado'}</Text>
       <View style={styles.cardFooter}>
@@ -165,12 +181,18 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
       {scheduledTime && <Text style={styles.label}>Retirada a partir de {dateTime.format(scheduledTime)}</Text>}
       {active && !incident && assigned && (
         <>
-          <Button label={submitting === 'pickup' ? 'Registrando…' : 'Confirmar retirada'} disabled={disabled || (!!scheduledTime && now < scheduledTime.getTime())}
-            onPress={() => onSubmit({ kind: 'pickup' })} />
-          <Button label="Desistir da entrega" secondary disabled={disabled}
+          <Button label={submitting === 'pickup' ? 'Registrando…' : nextPickup ? 'Confirmar coleta em ' + nextPickup.storeName : 'Confirmar retirada'}
+            disabled={disabled || (!!scheduledTime && now < scheduledTime.getTime()) || (!!delivery.pickups && !nextPickup)}
+            onPress={() => onSubmit({ kind: 'pickup', stopOrderId: nextPickup?.orderId })} />
+          {hasCollected ? <>
+            <TextInput style={styles.input} accessibilityLabel="Motivo da ocorrência" placeholder="Descreva o problema com a coleta"
+              maxLength={500} value={reason} onChangeText={setReason} editable={!disabled} />
+            <Button label="Relatar problema na coleta" secondary disabled={disabled || !reason.trim()}
+              onPress={() => onSubmit({ kind: 'cancel', reason: reason.trim() })} />
+          </> : <Button label="Desistir da entrega" secondary disabled={disabled}
             onPress={() => Alert.alert('Desistir da entrega?', 'A plataforma buscará outro entregador.', [
               { text: 'Voltar', style: 'cancel' }, { text: 'Desistir', style: 'destructive', onPress: () => onSubmit({ kind: 'cancel' }) },
-            ])} />
+            ])} />}
         </>
       )}
       {active && !incident && !assigned && (
@@ -400,7 +422,7 @@ function Deliveries({ session, onExpired, onLogout, pushDestination, cancellatio
         await respondToDeliveryOffer(token, item.orderId, item.offerId, action.kind === 'accept', controller.signal);
       } else if (action.kind === 'accept') await acceptDelivery(token, item.orderId, controller.signal);
       else if (action.kind === 'cancel') await cancelDelivery(token, item.orderId, controller.signal, action.reason);
-      else if (action.kind === 'pickup') await pickupDelivery(token, item.orderId, controller.signal);
+      else if (action.kind === 'pickup') await pickupDelivery(token, item.orderId, controller.signal, action.stopOrderId);
       else if (action.kind === 'confirm') await confirmDelivery(token, item.orderId, action.code, controller.signal);
       if (controller.signal.aborted) return;
       if (item.offerId && (action.kind === 'accept' || action.kind === 'decline')) closeOffer(item);
