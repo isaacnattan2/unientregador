@@ -146,11 +146,11 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
       <View style={styles.orderSummary}>
         <Text style={styles.order}>Pedido #{formatOrderCode(delivery.orderId)}</Text>
         <Text style={[styles.deliveryStatus, styles[status === 'cancelled_by_store' ? 'cancelled' : status]]}>
-          {incident && active ? 'Ocorrência em análise' : assigned && active ? 'Aguardando retirada' :
-            delivery.offerId && !delivery.status ? 'Oferta de entrega' : deliveryStatusLabels[status]}
+          {incident && active ? 'Ocorrência em análise' : assigned && active ? (delivery.passengerRide ? 'Aguardando embarque' : 'Aguardando retirada') :
+            delivery.offerId && !delivery.status ? (delivery.passengerRide ? 'Oferta de corrida' : 'Oferta de entrega') : deliveryStatusLabels[status]}
         </Text>
       </View>
-      <Text style={styles.label}>{delivery.pickups ? 'Paradas de coleta' : 'Retirada'}</Text>
+      <Text style={styles.label}>{delivery.passengerRide ? 'Embarque' : delivery.pickups ? 'Paradas de coleta' : 'Retirada'}</Text>
       {delivery.pickups ? delivery.pickups.map((pickup, index) => (
         <View key={pickup.orderId}>
           <Text style={styles.label}>{index + 1}. {pickup.storeName}{pickup.collected ? ' · Coletado' : ''}</Text>
@@ -182,7 +182,13 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
       {scheduledTime && <Text style={styles.label}>Retirada a partir de {dateTime.format(scheduledTime)}</Text>}
       {active && !incident && assigned && (
         <>
-          <Button label={submitting === 'pickup' ? 'Registrando…' : nextPickup ? 'Confirmar coleta em ' + nextPickup.storeName : 'Confirmar retirada'}
+          {delivery.passengerRide && delivery.pickup.address && (
+            <Button label="Abrir local de embarque no mapa" secondary disabled={disabled} onPress={() => {
+              const address = delivery.pickup.address!;
+              void Linking.openURL('geo:0,0?q=' + encodeURIComponent(address)).catch(() => Alert.alert('Mapa indisponível', address));
+            }} />
+          )}
+          <Button label={submitting === 'pickup' ? 'Registrando…' : delivery.passengerRide ? 'Confirmar embarque' : nextPickup ? 'Confirmar coleta em ' + nextPickup.storeName : 'Confirmar retirada'}
             disabled={disabled || (!!scheduledTime && now < scheduledTime.getTime()) || (!!delivery.pickups && !nextPickup)}
             onPress={() => onSubmit({ kind: 'pickup', stopOrderId: nextPickup?.orderId })} />
           {hasCollected ? <>
@@ -200,11 +206,11 @@ function DeliveryCard({ delivery, submitting, disabled, actionError, onSubmit, o
         <>
           <Button label="Ver mapa da entrega" secondary disabled={disabled} onPress={onNavigate} />
           {map}
-          <Text style={styles.label}>Código de entrega</Text>
+          <Text style={styles.label}>{delivery.passengerRide ? 'Código de desembarque' : 'Código de entrega'}</Text>
           <TextInput style={styles.input} accessibilityLabel="Código de entrega" placeholder="4 dígitos"
             keyboardType="number-pad" maxLength={4} value={code} editable={!disabled}
             onChangeText={(value) => setCode(value.replace(/[^0-9]/g, ''))} />
-          <Button label={submitting === 'confirm' ? 'Confirmando…' : 'Confirmar entrega'}
+          <Button label={submitting === 'confirm' ? 'Confirmando…' : delivery.passengerRide ? 'Confirmar desembarque' : 'Confirmar entrega'}
             disabled={disabled || code.length !== 4} onPress={() => onSubmit({ kind: 'confirm', code })} />
           {delivery.managed ? <>
             <Button label={reporting ? 'Voltar à entrega' : 'Relatar problema na entrega'} secondary disabled={disabled}

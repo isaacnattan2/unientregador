@@ -39,6 +39,7 @@ export interface Delivery {
   orderNumber: string;
   createdAt: string | null;
   pickup: { storeId: string; storeName: string; address: string | null };
+  passengerRide?: boolean;
   pickups?: { orderId: string; storeName: string; address: string; collected: boolean }[];
   destinationArea: string | null;
   destinationAddress?: string | null;

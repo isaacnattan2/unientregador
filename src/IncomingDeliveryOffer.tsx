@@ -82,7 +82,7 @@ export function IncomingDeliveryOffer({ offer, deadline, busy, error, onAccept, 
       </View>
       {mileage?.amountPerKm != null && <Text style={styles.caption}>{currency.format(mileage.amountPerKm)}/km estimado</Text>}
       <View style={styles.route}>
-        <Text style={styles.caption}>{offer.pickups ? 'Paradas de coleta' : 'Retirada'}</Text>
+        <Text style={styles.caption}>{offer.passengerRide ? 'Embarque' : offer.pickups ? 'Paradas de coleta' : 'Retirada'}</Text>
         {offer.pickups ? offer.pickups.map((pickup, index) => (
           <View key={pickup.orderId}>
             <Text style={[styles.store, { color: theme.secondaryInk }]}>{index + 1}. {pickup.storeName}</Text>
